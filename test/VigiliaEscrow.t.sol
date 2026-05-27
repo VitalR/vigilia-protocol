@@ -10,6 +10,7 @@ contract VigiliaEscrowTest is Test {
         uint256 indexed taskId,
         address indexed client,
         address indexed contractor,
+        address resolver,
         uint256 amount,
         uint64 reviewWindow,
         string requirementsURI
@@ -29,13 +30,22 @@ contract VigiliaEscrowTest is Test {
     event TaskApproved(uint256 indexed taskId, address indexed client, uint256 indexed submissionId);
     event TaskClaimed(uint256 indexed taskId, address indexed contractor, uint256 amount);
     event DisputeRaised(uint256 indexed taskId, address indexed raisedBy, uint8 previousState, string reasonURI);
+    event DisputeResolved(
+        uint256 indexed taskId,
+        address indexed resolver,
+        uint256 clientRefund,
+        uint256 contractorAward,
+        string resolutionURI
+    );
     event TaskCancelled(uint256 indexed taskId, address indexed client, uint256 refundAmount);
+    event PendingWithdrawalClaimed(address indexed account, uint256 amount);
 
     VigiliaEscrow private _escrow;
     MockVerifier private _verifier;
 
     address private _client = address(0xC11E47);
     address private _contractor = address(0xB011DE2);
+    address private _resolver = address(0x4B17E2);
     address private _attacker = address(0xA77A);
 
     uint256 private constant _TASK_AMOUNT = 10 ether;
@@ -44,6 +54,7 @@ contract VigiliaEscrowTest is Test {
     string private constant _EVIDENCE_URI = "ipfs://evidence";
     bytes32 private constant _EVIDENCE_HASH = keccak256("evidence");
     string private constant _VERIFIER_NOTES_URI = "ipfs://verifier-notes";
+    string private constant _RESOLUTION_URI = "ipfs://resolution";
 
     function setUp() public {
         _verifier = new MockVerifier();
@@ -51,18 +62,20 @@ contract VigiliaEscrowTest is Test {
 
         vm.deal(_client, 100 ether);
         vm.deal(_contractor, 1 ether);
+        vm.deal(_resolver, 1 ether);
         vm.deal(_attacker, 1 ether);
     }
 
     function test_CreateTask_ClientCreatesTask() public {
         vm.expectEmit(true, true, true, true);
-        emit TaskCreated(1, _client, _contractor, _TASK_AMOUNT, _REVIEW_WINDOW, _REQUIREMENTS_URI);
+        emit TaskCreated(1, _client, _contractor, _resolver, _TASK_AMOUNT, _REVIEW_WINDOW, _REQUIREMENTS_URI);
 
         uint256 taskId = _createTask();
 
         (
             address client,
             address contractor,
+            address resolver,
             uint256 amount,
             uint256 fundedAmount,
             uint256 activeSubmissionId,
@@ -75,6 +88,7 @@ contract VigiliaEscrowTest is Test {
 
         assertEq(client, _client);
         assertEq(contractor, _contractor);
+        assertEq(resolver, _resolver);
         assertEq(amount, _TASK_AMOUNT);
         assertEq(fundedAmount, 0);
         assertEq(activeSubmissionId, 0);
@@ -94,13 +108,19 @@ contract VigiliaEscrowTest is Test {
     function test_CreateTask_ZeroContractorReverts() public {
         vm.prank(_client);
         vm.expectRevert(VigiliaEscrow.InvalidAddress.selector);
-        _escrow.createTask(address(0), _TASK_AMOUNT, _REVIEW_WINDOW, _REQUIREMENTS_URI);
+        _escrow.createTask(address(0), _resolver, _TASK_AMOUNT, _REVIEW_WINDOW, _REQUIREMENTS_URI);
+    }
+
+    function test_CreateTask_ZeroResolverReverts() public {
+        vm.prank(_client);
+        vm.expectRevert(VigiliaEscrow.InvalidAddress.selector);
+        _escrow.createTask(_contractor, address(0), _TASK_AMOUNT, _REVIEW_WINDOW, _REQUIREMENTS_URI);
     }
 
     function test_CreateTask_ZeroAmountReverts() public {
         vm.prank(_client);
         vm.expectRevert(VigiliaEscrow.InvalidAmount.selector);
-        _escrow.createTask(_contractor, 0, _REVIEW_WINDOW, _REQUIREMENTS_URI);
+        _escrow.createTask(_contractor, _resolver, 0, _REVIEW_WINDOW, _REQUIREMENTS_URI);
     }
 
     function test_FundTask_ClientFundsEscrow() public {
@@ -112,7 +132,7 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_client);
         _escrow.fundTask{ value: _TASK_AMOUNT }(taskId);
 
-        (,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         assertEq(fundedAmount, _TASK_AMOUNT);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Funded));
         assertEq(address(_escrow).balance, _TASK_AMOUNT);
@@ -140,7 +160,7 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_contractor);
         (uint256 submissionId, bytes32 requestId) = _escrow.submitWork(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
 
-        (,,,, uint256 activeSubmissionId, uint256 submissionCount, VigiliaEscrow.TaskState state,,,) =
+        (,,,,, uint256 activeSubmissionId, uint256 submissionCount, VigiliaEscrow.TaskState state,,,) =
             _escrow.tasks(taskId);
         (
             uint256 submissionTaskId,
@@ -221,7 +241,7 @@ contract VigiliaEscrowTest is Test {
         vm.expectRevert(VigiliaEscrow.ZeroRequestId.selector);
         _escrow.submitWork(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
 
-        (,,,, uint256 activeSubmissionId, uint256 submissionCount, VigiliaEscrow.TaskState state,,,) =
+        (,,,,, uint256 activeSubmissionId, uint256 submissionCount, VigiliaEscrow.TaskState state,,,) =
             _escrow.tasks(taskId);
         assertEq(activeSubmissionId, 0);
         assertEq(submissionCount, 0);
@@ -247,7 +267,7 @@ contract VigiliaEscrowTest is Test {
 
         _recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.Complete);
 
-        (,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaEscrow.VerificationVerdict verdict,, uint64 verifiedAt) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
@@ -260,7 +280,7 @@ contract VigiliaEscrowTest is Test {
 
         _recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.NeedsReview);
 
-        (,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaEscrow.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.NeedsReview));
@@ -272,7 +292,7 @@ contract VigiliaEscrowTest is Test {
 
         _recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.Incomplete);
 
-        (,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaEscrow.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Incomplete));
@@ -307,8 +327,8 @@ contract VigiliaEscrowTest is Test {
             firstTaskId, secondSubmissionId, VigiliaEscrow.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
         );
 
-        (,,,,,, VigiliaEscrow.TaskState firstState,,,) = _escrow.tasks(firstTaskId);
-        (,,,,,, VigiliaEscrow.TaskState secondState,,,) = _escrow.tasks(secondTaskId);
+        (,,,,,,, VigiliaEscrow.TaskState firstState,,,) = _escrow.tasks(firstTaskId);
+        (,,,,,,, VigiliaEscrow.TaskState secondState,,,) = _escrow.tasks(secondTaskId);
         assertEq(uint256(firstState), uint256(VigiliaEscrow.TaskState.Submitted));
         assertEq(uint256(secondState), uint256(VigiliaEscrow.TaskState.Submitted));
     }
@@ -360,7 +380,7 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_client);
         _escrow.approveTask(taskId);
 
-        (,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Approved));
     }
 
@@ -373,7 +393,7 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_client);
         _escrow.approveTask(taskId);
 
-        (,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Approved));
     }
 
@@ -427,7 +447,7 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_contractor);
         _escrow.claim(taskId);
 
-        (,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         assertEq(fundedAmount, 0);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Claimed));
         assertEq(address(_escrow).balance, 0);
@@ -465,7 +485,7 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_contractor);
         _escrow.claim(taskId);
 
-        (,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         assertEq(fundedAmount, 0);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Claimed));
         assertEq(address(_escrow).balance, 0);
@@ -508,7 +528,7 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_client);
         _escrow.raiseDispute(taskId, "ipfs://dispute");
 
-        (,,,,,, VigiliaEscrow.TaskState state, VigiliaEscrow.TaskState previousState,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state, VigiliaEscrow.TaskState previousState,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Disputed));
         assertEq(uint256(previousState), uint256(VigiliaEscrow.TaskState.Approved));
 
@@ -517,6 +537,165 @@ contract VigiliaEscrowTest is Test {
             abi.encodeWithSelector(VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.Disputed)
         );
         _escrow.claim(taskId);
+    }
+
+    function test_RaiseDispute_ClientRaisesDisputeInDisputableState() public {
+        uint256 taskId = _createAndFundTask();
+
+        vm.prank(_client);
+        _escrow.raiseDispute(taskId, "ipfs://client-dispute");
+
+        (,,,,,,, VigiliaEscrow.TaskState state, VigiliaEscrow.TaskState previousState,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Disputed));
+        assertEq(uint256(previousState), uint256(VigiliaEscrow.TaskState.Funded));
+    }
+
+    function test_RaiseDispute_ContractorRaisesDisputeInDisputableState() public {
+        uint256 taskId = _createAndFundTask();
+
+        vm.prank(_contractor);
+        _escrow.raiseDispute(taskId, "ipfs://contractor-dispute");
+
+        (,,,,,,, VigiliaEscrow.TaskState state, VigiliaEscrow.TaskState previousState,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Disputed));
+        assertEq(uint256(previousState), uint256(VigiliaEscrow.TaskState.Funded));
+    }
+
+    function test_ResolveDispute_ResolverAwardsFullContractorPayout() public {
+        uint256 taskId = _createFundAndDisputeTask();
+
+        vm.prank(_resolver);
+        _escrow.resolveDispute(taskId, 0, _TASK_AMOUNT, _RESOLUTION_URI);
+
+        (,,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(fundedAmount, 0);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Resolved));
+        assertEq(_escrow.pendingWithdrawals(_client), 0);
+        assertEq(_escrow.pendingWithdrawals(_contractor), _TASK_AMOUNT);
+        assertEq(address(_escrow).balance, _TASK_AMOUNT);
+
+        uint256 contractorBalanceBefore = _contractor.balance;
+
+        vm.expectEmit(true, false, false, true);
+        emit PendingWithdrawalClaimed(_contractor, _TASK_AMOUNT);
+
+        vm.prank(_contractor);
+        _escrow.withdrawPending();
+
+        assertEq(_escrow.pendingWithdrawals(_contractor), 0);
+        assertEq(_contractor.balance, contractorBalanceBefore + _TASK_AMOUNT);
+        assertEq(address(_escrow).balance, 0);
+    }
+
+    function test_ResolveDispute_ResolverRefundsFullClientAmount() public {
+        uint256 taskId = _createFundAndDisputeTask();
+
+        vm.prank(_resolver);
+        _escrow.resolveDispute(taskId, _TASK_AMOUNT, 0, _RESOLUTION_URI);
+
+        (,,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(fundedAmount, 0);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Resolved));
+        assertEq(_escrow.pendingWithdrawals(_client), _TASK_AMOUNT);
+        assertEq(_escrow.pendingWithdrawals(_contractor), 0);
+
+        uint256 clientBalanceBefore = _client.balance;
+
+        vm.prank(_client);
+        _escrow.withdrawPending();
+
+        assertEq(_escrow.pendingWithdrawals(_client), 0);
+        assertEq(_client.balance, clientBalanceBefore + _TASK_AMOUNT);
+        assertEq(address(_escrow).balance, 0);
+    }
+
+    function test_ResolveDispute_ResolverSplitsSettlement() public {
+        uint256 taskId = _createFundAndDisputeTask();
+        uint256 clientRefund = 4 ether;
+        uint256 contractorAward = 6 ether;
+
+        vm.expectEmit(true, true, false, true);
+        emit DisputeResolved(taskId, _resolver, clientRefund, contractorAward, _RESOLUTION_URI);
+
+        vm.prank(_resolver);
+        _escrow.resolveDispute(taskId, clientRefund, contractorAward, _RESOLUTION_URI);
+
+        assertEq(_escrow.pendingWithdrawals(_client), clientRefund);
+        assertEq(_escrow.pendingWithdrawals(_contractor), contractorAward);
+        assertEq(address(_escrow).balance, _TASK_AMOUNT);
+
+        uint256 clientBalanceBefore = _client.balance;
+        uint256 contractorBalanceBefore = _contractor.balance;
+
+        vm.prank(_client);
+        _escrow.withdrawPending();
+
+        vm.prank(_contractor);
+        _escrow.withdrawPending();
+
+        assertEq(_client.balance, clientBalanceBefore + clientRefund);
+        assertEq(_contractor.balance, contractorBalanceBefore + contractorAward);
+        assertEq(_escrow.pendingWithdrawals(_client), 0);
+        assertEq(_escrow.pendingWithdrawals(_contractor), 0);
+        assertEq(address(_escrow).balance, 0);
+    }
+
+    function test_ResolveDispute_UnauthorizedResolverCallerReverts() public {
+        uint256 taskId = _createFundAndDisputeTask();
+
+        vm.prank(_attacker);
+        vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.Unauthorized.selector, _attacker));
+        _escrow.resolveDispute(taskId, _TASK_AMOUNT, 0, _RESOLUTION_URI);
+    }
+
+    function test_ResolveDispute_NonDisputedTaskReverts() public {
+        uint256 taskId = _createAndFundTask();
+
+        vm.prank(_resolver);
+        vm.expectRevert(
+            abi.encodeWithSelector(VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.Funded)
+        );
+        _escrow.resolveDispute(taskId, _TASK_AMOUNT, 0, _RESOLUTION_URI);
+    }
+
+    function test_ResolveDispute_AlreadyResolvedTaskReverts() public {
+        uint256 taskId = _createFundAndDisputeTask();
+
+        vm.prank(_resolver);
+        _escrow.resolveDispute(taskId, _TASK_AMOUNT, 0, _RESOLUTION_URI);
+
+        vm.prank(_resolver);
+        vm.expectRevert(
+            abi.encodeWithSelector(VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.Resolved)
+        );
+        _escrow.resolveDispute(taskId, _TASK_AMOUNT, 0, _RESOLUTION_URI);
+    }
+
+    function test_ResolveDispute_ResolutionAmountMismatchReverts() public {
+        uint256 taskId = _createFundAndDisputeTask();
+
+        vm.prank(_resolver);
+        vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.InvalidResolutionAmount.selector, _TASK_AMOUNT, 9 ether));
+        _escrow.resolveDispute(taskId, 4 ether, 5 ether, _RESOLUTION_URI);
+    }
+
+    function test_Claim_AfterDisputeResolutionReverts() public {
+        uint256 taskId = _createFundAndDisputeTask();
+
+        vm.prank(_resolver);
+        _escrow.resolveDispute(taskId, 0, _TASK_AMOUNT, _RESOLUTION_URI);
+
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.Resolved)
+        );
+        _escrow.claim(taskId);
+    }
+
+    function test_WithdrawPending_NoPendingWithdrawalReverts() public {
+        vm.prank(_contractor);
+        vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.NoPendingWithdrawal.selector, _contractor));
+        _escrow.withdrawPending();
     }
 
     function test_CancelTask_ClientCancelsFundedTaskAndReceivesRefund() public {
@@ -529,7 +708,7 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_client);
         _escrow.cancelTask(taskId);
 
-        (,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         assertEq(fundedAmount, 0);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Cancelled));
         assertEq(address(_escrow).balance, 0);
@@ -546,7 +725,7 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_client);
         _escrow.cancelTask(taskId);
 
-        (,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         assertEq(fundedAmount, 0);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Cancelled));
         assertEq(address(_escrow).balance, 0);
@@ -561,7 +740,7 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_client);
         _escrow.cancelTask(taskId);
 
-        (,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         assertEq(fundedAmount, 0);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Cancelled));
         assertEq(address(_escrow).balance, 0);
@@ -659,7 +838,7 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_contractor);
         (uint256 secondSubmissionId,) = _escrow.submitWork(taskId, "ipfs://evidence-v2", keccak256("evidence-v2"));
 
-        (,,,, uint256 activeSubmissionId, uint256 submissionCount, VigiliaEscrow.TaskState state,,,) =
+        (,,,,, uint256 activeSubmissionId, uint256 submissionCount, VigiliaEscrow.TaskState state,,,) =
             _escrow.tasks(taskId);
 
         assertEq(secondSubmissionId, 2);
@@ -670,7 +849,7 @@ contract VigiliaEscrowTest is Test {
 
     function _createTask() private returns (uint256 taskId) {
         vm.prank(_client);
-        taskId = _escrow.createTask(_contractor, _TASK_AMOUNT, _REVIEW_WINDOW, _REQUIREMENTS_URI);
+        taskId = _escrow.createTask(_contractor, _resolver, _TASK_AMOUNT, _REVIEW_WINDOW, _REQUIREMENTS_URI);
     }
 
     function _createAndFundTask() private returns (uint256 taskId) {
@@ -678,6 +857,13 @@ contract VigiliaEscrowTest is Test {
 
         vm.prank(_client);
         _escrow.fundTask{ value: _TASK_AMOUNT }(taskId);
+    }
+
+    function _createFundAndDisputeTask() private returns (uint256 taskId) {
+        taskId = _createAndFundTask();
+
+        vm.prank(_client);
+        _escrow.raiseDispute(taskId, "ipfs://dispute");
     }
 
     function _createFundAndSubmitTask() private returns (uint256 taskId, uint256 submissionId, bytes32 requestId) {

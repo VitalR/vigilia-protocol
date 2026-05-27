@@ -6,13 +6,15 @@ import { IVigiliaVerifier } from "./interfaces/IVigiliaVerifier.sol";
 /// @title VigiliaEscrow
 /// @notice Compact MVP escrow for agent-verified public work settlement.
 /// @dev Native-token only for the first pass. Verifier output is bounded and never transfers funds directly.
-/// @dev This MVP is permissionless and ownerless. Task authority is scoped to each task's client, contractor, and
-/// configured verifier; there is no global admin that can move funds, approve work, or resolve disputes.
+/// @dev This MVP is permissionless and ownerless. Task authority is scoped to each task's client, contractor,
+/// task-specific resolver, and configured verifier; there is no global admin that can move funds, approve work, or
+/// resolve disputes.
 contract VigiliaEscrow {
     /// @notice Emitted when a client creates a new unfunded task.
     /// @param taskId New task identifier.
     /// @param client Account that created the task and controls client-only actions.
     /// @param contractor Account allowed to submit evidence and claim approved escrow.
+    /// @param resolver Task-specific account allowed to resolve disputes.
     /// @param amount Exact native-token escrow amount required to fund the task.
     /// @param reviewWindow Seconds the client can use to approve or dispute a complete submission before auto-claim.
     /// @param requirementsURI Public URI describing task requirements.
@@ -20,6 +22,7 @@ contract VigiliaEscrow {
         uint256 indexed taskId,
         address indexed client,
         address indexed contractor,
+        address resolver,
         uint256 amount,
         uint64 reviewWindow,
         string requirementsURI
@@ -80,11 +83,30 @@ contract VigiliaEscrow {
     /// @param reasonURI Public URI describing the dispute or challenge reason.
     event DisputeRaised(uint256 indexed taskId, address indexed raisedBy, TaskState previousState, string reasonURI);
 
+    /// @notice Emitted when the task-specific resolver allocates disputed escrow.
+    /// @param taskId Resolved task identifier.
+    /// @param resolver Task-specific resolver account.
+    /// @param clientRefund Native-token credit allocated to the client.
+    /// @param contractorAward Native-token credit allocated to the contractor.
+    /// @param resolutionURI Public URI describing the resolution rationale.
+    event DisputeResolved(
+        uint256 indexed taskId,
+        address indexed resolver,
+        uint256 clientRefund,
+        uint256 contractorAward,
+        string resolutionURI
+    );
+
     /// @notice Emitted when a client cancels a safely cancellable task.
     /// @param taskId Cancelled task identifier.
     /// @param client Client receiving any escrow refund.
     /// @param refundAmount Native-token amount refunded to the client.
     event TaskCancelled(uint256 indexed taskId, address indexed client, uint256 refundAmount);
+
+    /// @notice Emitted when an account withdraws pending dispute-resolution credit.
+    /// @param account Account withdrawing credited native tokens.
+    /// @param amount Native-token amount withdrawn.
+    event PendingWithdrawalClaimed(address indexed account, uint256 amount);
 
     /// @notice Reverts when evidence URI is empty.
     error EmptyEvidenceURI();
@@ -96,10 +118,17 @@ contract VigiliaEscrow {
     /// @param expected Required funding amount.
     /// @param actual Native-token amount sent.
     error InvalidFundingAmount(uint256 expected, uint256 actual);
+    /// @notice Reverts when dispute resolution allocations do not exactly consume the task escrow.
+    /// @param expected Task funded amount that must be fully allocated.
+    /// @param actual Sum of client refund and contractor award supplied by resolver.
+    error InvalidResolutionAmount(uint256 expected, uint256 actual);
     /// @notice Reverts when a task action is not valid from the current task state.
     /// @param taskId Task that failed the state guard.
     /// @param current Current state observed by the guard.
     error InvalidState(uint256 taskId, TaskState current);
+    /// @notice Reverts when an account has no pending withdrawal credit.
+    /// @param account Account without pending credit.
+    error NoPendingWithdrawal(address account);
     /// @notice Reverts when a contractor tries to claim a verified-complete task before the review window expires.
     /// @param taskId Task being claimed.
     /// @param claimableAt Earliest timestamp when review-window claim is allowed.
@@ -127,7 +156,8 @@ contract VigiliaEscrow {
     error ZeroRequestId();
 
     /// @notice Task lifecycle states enforced by the escrow state machine.
-    /// @dev `None` is reserved for missing tasks. `Disputed` freezes settlement until a future resolver exists.
+    /// @dev `None` is reserved for missing tasks. `Disputed` freezes settlement until the task-specific resolver
+    /// allocates the escrow into pending withdrawal credits.
     enum TaskState {
         None,
         Created,
@@ -139,6 +169,7 @@ contract VigiliaEscrow {
         Approved,
         Claimed,
         Disputed,
+        Resolved,
         Cancelled
     }
 
@@ -155,6 +186,7 @@ contract VigiliaEscrow {
     /// @notice Fixed-price task tracked by the MVP escrow.
     /// @param client Client account that created and funded the task.
     /// @param contractor Contractor account assigned to submit evidence and claim.
+    /// @param resolver Task-specific account trusted by both parties to resolve disputes.
     /// @param amount Required funding amount for the task.
     /// @param fundedAmount Native-token amount currently held for this task.
     /// @param activeSubmissionId Latest submission eligible for verdict recording.
@@ -166,6 +198,7 @@ contract VigiliaEscrow {
     struct Task {
         address client;
         address contractor;
+        address resolver;
         uint256 amount;
         uint256 fundedAmount;
         uint256 activeSubmissionId;
@@ -212,6 +245,9 @@ contract VigiliaEscrow {
     /// @notice Submission storage by submission identifier.
     mapping(uint256 submissionId => Submission submission) public submissions;
 
+    /// @notice Native-token credits allocated by dispute resolution and withdrawable by each account.
+    mapping(address account => uint256 amount) public pendingWithdrawals;
+
     /// @notice Initializes the escrow with the verifier adapter allowed to request and record verification results.
     /// @param _verifier Verifier contract address. In MVP tests this is MockVerifier; later it can be a Somnia adapter.
     constructor(address _verifier) {
@@ -222,27 +258,33 @@ contract VigiliaEscrow {
 
     /// @notice Creates an unfunded fixed-price task for a known contractor.
     /// @param _contractor Contractor wallet allowed to submit evidence and claim approved funds.
+    /// @param _resolver Task-specific resolver wallet allowed to allocate disputed escrow.
     /// @param _amount Exact native-token amount the client must later escrow for this task.
     /// @param _reviewWindow Seconds after a complete verdict before the contractor can claim without approval.
     /// @param _requirementsURI Public URI describing task requirements and expected evidence.
     /// @return taskId Newly created task identifier.
-    function createTask(address _contractor, uint256 _amount, uint64 _reviewWindow, string calldata _requirementsURI)
-        external
-        returns (uint256 taskId)
-    {
+    function createTask(
+        address _contractor,
+        address _resolver,
+        uint256 _amount,
+        uint64 _reviewWindow,
+        string calldata _requirementsURI
+    ) external returns (uint256 taskId) {
         if (_contractor == address(0)) revert InvalidAddress();
+        if (_resolver == address(0)) revert InvalidAddress();
         if (_amount == 0) revert InvalidAmount();
 
         taskId = nextTaskId++;
         Task storage task = tasks[taskId];
         task.client = msg.sender;
         task.contractor = _contractor;
+        task.resolver = _resolver;
         task.amount = _amount;
         task.state = TaskState.Created;
         task.requirementsURI = _requirementsURI;
         task.reviewWindow = _reviewWindow;
 
-        emit TaskCreated(taskId, msg.sender, _contractor, _amount, _reviewWindow, _requirementsURI);
+        emit TaskCreated(taskId, msg.sender, _contractor, _resolver, _amount, _reviewWindow, _requirementsURI);
     }
 
     /// @notice Funds a created task with the exact required native-token amount.
@@ -368,7 +410,7 @@ contract VigiliaEscrow {
         emit TaskClaimed(_taskId, msg.sender, payout);
     }
 
-    /// @notice Raises a basic dispute and freezes claim/cancellation paths until a future resolver exists.
+    /// @notice Raises a basic dispute and freezes claim/cancellation paths until the task resolver allocates escrow.
     /// @param _taskId Task to dispute.
     /// @param _reasonURI Public URI describing the dispute reason or challenge evidence.
     function raiseDispute(uint256 _taskId, string calldata _reasonURI) external {
@@ -382,6 +424,51 @@ contract VigiliaEscrow {
         task.state = TaskState.Disputed;
 
         emit DisputeRaised(_taskId, msg.sender, previousState, _reasonURI);
+    }
+
+    /// @notice Resolves a disputed task by allocating escrow between client refund and contractor award.
+    /// @dev Only the task-specific resolver can call this function. Resolution is ownerless at the protocol level:
+    /// the resolver is selected per task and the contract only enforces exact accounting plus pull-based withdrawal.
+    /// @param _taskId Disputed task to resolve.
+    /// @param _clientRefund Native-token amount credited to the client.
+    /// @param _contractorAward Native-token amount credited to the contractor.
+    /// @param _resolutionURI Public URI describing the resolution rationale.
+    function resolveDispute(
+        uint256 _taskId,
+        uint256 _clientRefund,
+        uint256 _contractorAward,
+        string calldata _resolutionURI
+    ) external {
+        Task storage task = _existingTask(_taskId);
+        if (msg.sender != task.resolver) revert Unauthorized(msg.sender);
+        _requireState(_taskId, task, TaskState.Disputed);
+
+        uint256 resolvedAmount = _clientRefund + _contractorAward;
+        uint256 fundedAmount = task.fundedAmount;
+        if (resolvedAmount != fundedAmount) revert InvalidResolutionAmount(fundedAmount, resolvedAmount);
+
+        task.fundedAmount = 0;
+        task.state = TaskState.Resolved;
+
+        pendingWithdrawals[task.client] += _clientRefund;
+        pendingWithdrawals[task.contractor] += _contractorAward;
+
+        emit DisputeResolved(_taskId, msg.sender, _clientRefund, _contractorAward, _resolutionURI);
+    }
+
+    /// @notice Withdraws native-token credit allocated by dispute resolution.
+    /// @dev Credits are cleared before transfer, so a reverting recipient cannot corrupt accounting or reenter for the
+    /// same funds.
+    function withdrawPending() external {
+        uint256 amount = pendingWithdrawals[msg.sender];
+        if (amount == 0) revert NoPendingWithdrawal(msg.sender);
+
+        pendingWithdrawals[msg.sender] = 0;
+
+        (bool success,) = msg.sender.call{ value: amount }("");
+        if (!success) revert TransferFailed(msg.sender, amount);
+
+        emit PendingWithdrawalClaimed(msg.sender, amount);
     }
 
     /// @notice Cancels a task and refunds escrow when no valid payable submission is pending or approved.
