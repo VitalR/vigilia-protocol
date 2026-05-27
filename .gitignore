@@ -76,9 +76,10 @@ out/
 */broadcast/
 **/broadcast/
 
-# Dotenv file
-*.env
-*.env.local
+# Dotenv files
+.env
+.env.*
+!.env.example
 
 # Coverage file
 lcov.info
@@ -90,6 +91,7 @@ agent/state
 
 # Custom files
 bin
+draft/internal/
 draft/
 notes.txt
 .vercel
