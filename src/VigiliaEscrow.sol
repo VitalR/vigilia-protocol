@@ -65,7 +65,25 @@ contract VigiliaEscrow {
         string verifierNotesURI
     );
 
-    /// @notice Emitted when a client approves a complete or review-required task for contractor claim.
+    /// @notice Emitted when verifier infrastructure fails without producing a work-quality verdict.
+    /// @param taskId Task whose verification request failed.
+    /// @param submissionId Active submission whose request failed.
+    /// @param requestId Verifier request identifier associated with the failed request.
+    /// @param failureNotesURI Public URI or deterministic note describing the failure.
+    event VerificationFailedRecorded(
+        uint256 indexed taskId, uint256 indexed submissionId, bytes32 requestId, string failureNotesURI
+    );
+
+    /// @notice Emitted when an active failed submission is sent back to the verifier without replacing evidence.
+    /// @param taskId Task whose active submission is being retried.
+    /// @param submissionId Active submission receiving a new verifier request.
+    /// @param payer Account that paid the retry verification deposit.
+    /// @param requestId New verifier request identifier.
+    event VerificationRetried(
+        uint256 indexed taskId, uint256 indexed submissionId, address indexed payer, bytes32 requestId
+    );
+
+    /// @notice Emitted when a client approves a task for contractor claim.
     /// @param taskId Approved task identifier.
     /// @param client Client account approving settlement.
     /// @param submissionId Active submission approved for settlement.
@@ -157,8 +175,9 @@ contract VigiliaEscrow {
     error ZeroRequestId();
 
     /// @notice Task lifecycle states enforced by the escrow state machine.
-    /// @dev `None` is reserved for missing tasks. `Disputed` freezes settlement until the task-specific resolver
-    /// allocates the escrow into pending withdrawal credits.
+    /// @dev `None` is reserved for missing tasks. `VerificationFailed` is infrastructure failure, not work failure.
+    /// `Disputed` freezes settlement until the task-specific resolver allocates the escrow into pending withdrawal
+    /// credits.
     enum TaskState {
         None,
         Created,
@@ -167,6 +186,7 @@ contract VigiliaEscrow {
         VerifiedComplete,
         NeedsReview,
         Incomplete,
+        VerificationFailed,
         Approved,
         Claimed,
         Disputed,
@@ -293,7 +313,7 @@ contract VigiliaEscrow {
         emit TaskFunded(_taskId, msg.sender, msg.value);
     }
 
-    /// @notice Submits public evidence for a funded or previously incomplete task and requests verifier inspection.
+    /// @notice Submits public evidence for a funded, incomplete, or verification-failed task.
     /// @param _taskId Task receiving the evidence submission.
     /// @param _evidenceURI Public URI containing evidence metadata, links, and artifacts.
     /// @param _evidenceHash Hash of the evidence bundle or metadata for off-chain integrity checks.
@@ -323,7 +343,7 @@ contract VigiliaEscrow {
         submission.evidenceHash = _evidenceHash;
         submission.submittedAt = uint64(block.timestamp);
 
-        requestId = verifier.requestVerification{ value: msg.value }(_taskId, submissionId, _evidenceURI);
+        requestId = verifier.requestVerification{ value: msg.value }(_taskId, submissionId, msg.sender, _evidenceURI);
         if (requestId == bytes32(0)) revert ZeroRequestId();
         submission.requestId = requestId;
 
@@ -365,13 +385,63 @@ contract VigiliaEscrow {
         emit VerdictRecorded(_taskId, _submissionId, _verdict, submission.requestId, _verifierNotesURI);
     }
 
-    /// @notice Approves a complete or review-required submission so the contractor can pull payment.
-    /// @param _taskId Task to approve.
+    /// @notice Records terminal verifier infrastructure failure for the active submission.
+    /// @dev This is distinct from an `Incomplete` work verdict. It leaves the submission verdict unchanged and moves
+    /// the task into a retryable/manual-review state.
+    /// @param _taskId Task whose verification request failed.
+    /// @param _submissionId Active submission whose request failed.
+    /// @param _failureNotesURI Public URI or deterministic note describing the failure.
+    function recordVerificationFailure(uint256 _taskId, uint256 _submissionId, string calldata _failureNotesURI)
+        external
+    {
+        if (msg.sender != address(verifier)) revert Unauthorized(msg.sender);
+
+        Task storage task = _existingTask(_taskId);
+        _requireState(_taskId, task, TaskState.Submitted);
+        _requireActiveSubmission(task, _taskId, _submissionId);
+
+        Submission storage submission = submissions[_submissionId];
+        if (submission.requestId == bytes32(0)) revert ZeroRequestId();
+
+        task.state = TaskState.VerificationFailed;
+
+        emit VerificationFailedRecorded(_taskId, _submissionId, submission.requestId, _failureNotesURI);
+    }
+
+    /// @notice Retries verifier inspection for the active verification-failed submission.
+    /// @dev Either task party can pay for retry. This does not alter evidence, verdict, or submission count.
+    /// @param _taskId Task whose active failed submission should be retried.
+    /// @return requestId New verifier request identifier returned by the configured verifier.
+    function retryVerification(uint256 _taskId) external payable returns (bytes32 requestId) {
+        Task storage task = _existingTask(_taskId);
+        if (msg.sender != task.client && msg.sender != task.contractor) revert Unauthorized(msg.sender);
+        _requireState(_taskId, task, TaskState.VerificationFailed);
+
+        uint256 submissionId = task.activeSubmissionId;
+        Submission storage submission = submissions[submissionId];
+
+        task.state = TaskState.Submitted;
+
+        requestId = verifier.requestVerification{ value: msg.value }(
+            _taskId, submissionId, msg.sender, submission.evidenceURI
+        );
+        if (requestId == bytes32(0)) revert ZeroRequestId();
+        submission.requestId = requestId;
+
+        emit VerificationRetried(_taskId, submissionId, msg.sender, requestId);
+    }
+
+    /// @notice Approves a submitted, complete, incomplete, or verification-failed task so the contractor can pull
+    /// payment. @param _taskId Task to approve.
     function approveTask(uint256 _taskId) external {
         Task storage task = _existingTask(_taskId);
         _onlyClient(task);
 
-        if (task.state != TaskState.VerifiedComplete && task.state != TaskState.NeedsReview) {
+        if (
+            task.state != TaskState.Submitted && task.state != TaskState.VerifiedComplete
+                && task.state != TaskState.NeedsReview && task.state != TaskState.Incomplete
+                && task.state != TaskState.VerificationFailed
+        ) {
             revert InvalidState(_taskId, task.state);
         }
 
@@ -510,9 +580,12 @@ contract VigiliaEscrow {
         if (_task.state != _expected) revert InvalidState(_taskId, _task.state);
     }
 
-    /// @dev Allows initial submission from `Funded` and resubmission only after `Incomplete`.
+    /// @dev Allows initial submission from `Funded` and revised evidence after a work or infrastructure failure.
     function _requireSubmittable(uint256 _taskId, Task storage _task) private view {
-        if (_task.state != TaskState.Funded && _task.state != TaskState.Incomplete) {
+        if (
+            _task.state != TaskState.Funded && _task.state != TaskState.Incomplete
+                && _task.state != TaskState.VerificationFailed
+        ) {
             revert InvalidState(_taskId, _task.state);
         }
     }
@@ -528,7 +601,8 @@ contract VigiliaEscrow {
     /// @dev Defines the states that can be frozen by either task party in the MVP dispute model.
     function _isDisputable(TaskState _state) private pure returns (bool) {
         return _state == TaskState.Funded || _state == TaskState.Submitted || _state == TaskState.VerifiedComplete
-            || _state == TaskState.NeedsReview || _state == TaskState.Incomplete || _state == TaskState.Approved;
+            || _state == TaskState.NeedsReview || _state == TaskState.Incomplete
+            || _state == TaskState.VerificationFailed || _state == TaskState.Approved;
     }
 
     /// @dev Enforces the client review period for verified-complete auto-claim.

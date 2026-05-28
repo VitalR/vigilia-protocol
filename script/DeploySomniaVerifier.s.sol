@@ -9,10 +9,10 @@ import { VigiliaSomniaAgentVerifier } from "../src/VigiliaSomniaAgentVerifier.so
 /// @notice Deploys Vigilia escrow with the real Somnia Agent verifier adapter.
 contract DeploySomniaVerifier is Script {
     /// @notice Deploys the verifier, deploys escrow, and binds the verifier to escrow.
-    /// @dev Environment expected: PRIVATE_KEY, SOMNIA_AGENT_PLATFORM, SOMNIA_AGENT_ID,
+    /// @dev Environment expected: DEPLOYER_PRIVATE_KEY, SOMNIA_AGENT_PLATFORM, SOMNIA_AGENT_ID,
     /// AGENT_SUBCOMMITTEE_SIZE, AGENT_PRICE_PER_VALIDATOR.
     function run() external returns (VigiliaEscrow escrow, VigiliaSomniaAgentVerifier verifier) {
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
 
         address platform = vm.envAddress("SOMNIA_AGENT_PLATFORM");

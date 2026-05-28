@@ -28,6 +28,12 @@ contract VigiliaEscrowTest is Test {
     event VerdictRecorded(
         uint256 indexed taskId, uint256 indexed submissionId, uint8 verdict, bytes32 requestId, string verifierNotesURI
     );
+    event VerificationFailedRecorded(
+        uint256 indexed taskId, uint256 indexed submissionId, bytes32 requestId, string failureNotesURI
+    );
+    event VerificationRetried(
+        uint256 indexed taskId, uint256 indexed submissionId, address indexed payer, bytes32 requestId
+    );
     event TaskApproved(uint256 indexed taskId, address indexed client, uint256 indexed submissionId);
     event TaskClaimed(uint256 indexed taskId, address indexed contractor, uint256 amount);
     event DisputeRaised(uint256 indexed taskId, address indexed raisedBy, uint8 previousState, string reasonURI);
@@ -370,6 +376,55 @@ contract VigiliaEscrowTest is Test {
         _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Complete);
     }
 
+    function test_RecordVerificationFailure_VerifierRecordsFailure() public {
+        (uint256 taskId, uint256 submissionId, bytes32 requestId) = _createFundAndSubmitTask();
+
+        vm.expectEmit(true, true, false, true);
+        emit VerificationFailedRecorded(taskId, submissionId, requestId, _VERIFIER_NOTES_URI);
+
+        _recordVerificationFailure(taskId, submissionId);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,, uint64 verifiedAt) = _escrow.submissions(submissionId);
+
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Unknown));
+        assertEq(verifiedAt, 0);
+    }
+
+    function test_RecordVerificationFailure_NonVerifierReverts() public {
+        (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
+
+        vm.prank(_attacker);
+        vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.Unauthorized.selector, _attacker));
+        _escrow.recordVerificationFailure(taskId, submissionId, _VERIFIER_NOTES_URI);
+    }
+
+    function test_RecordVerificationFailure_StaleOldSubmissionReverts() public {
+        (uint256 taskId, uint256 firstSubmissionId,) = _createFundAndSubmitTask();
+        _recordVerificationFailure(taskId, firstSubmissionId);
+
+        vm.prank(_contractor);
+        _escrow.submitWork(taskId, "ipfs://evidence-v2", keccak256("evidence-v2"));
+
+        vm.prank(address(_verifier));
+        vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.InvalidSubmission.selector, taskId, firstSubmissionId));
+        _escrow.recordVerificationFailure(taskId, firstSubmissionId, _VERIFIER_NOTES_URI);
+    }
+
+    function test_RecordVerificationFailure_TwiceForSameSubmissionReverts() public {
+        (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
+        _recordVerificationFailure(taskId, submissionId);
+
+        vm.prank(address(_verifier));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.VerificationFailed
+            )
+        );
+        _escrow.recordVerificationFailure(taskId, submissionId, _VERIFIER_NOTES_URI);
+    }
+
     function test_ApproveTask_ClientApprovesCompleteTask() public {
         (uint256 taskId, uint256 submissionId,) = _createFundSubmitAndCompleteTask();
 
@@ -404,25 +459,44 @@ contract VigiliaEscrowTest is Test {
         _escrow.approveTask(taskId);
     }
 
-    function test_ApproveTask_ForIncompleteReverts() public {
+    function test_ApproveTask_ClientApprovesIncompleteTask() public {
         (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
         _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Incomplete);
 
+        vm.expectEmit(true, true, true, true);
+        emit TaskApproved(taskId, _client, submissionId);
+
         vm.prank(_client);
-        vm.expectRevert(
-            abi.encodeWithSelector(VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.Incomplete)
-        );
         _escrow.approveTask(taskId);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Approved));
     }
 
-    function test_ApproveTask_ForSubmittedReverts() public {
-        (uint256 taskId,,) = _createFundAndSubmitTask();
+    function test_ApproveTask_ClientApprovesSubmittedTask() public {
+        (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
+
+        vm.expectEmit(true, true, true, true);
+        emit TaskApproved(taskId, _client, submissionId);
 
         vm.prank(_client);
-        vm.expectRevert(
-            abi.encodeWithSelector(VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.Submitted)
-        );
         _escrow.approveTask(taskId);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Approved));
+    }
+
+    function test_ApproveTask_ClientApprovesVerificationFailedTask() public {
+        (uint256 taskId, uint256 submissionId,) = _createFundSubmitAndVerificationFailedTask();
+
+        vm.expectEmit(true, true, true, true);
+        emit TaskApproved(taskId, _client, submissionId);
+
+        vm.prank(_client);
+        _escrow.approveTask(taskId);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Approved));
     }
 
     function test_ApproveTask_ForFundedReverts() public {
@@ -503,6 +577,18 @@ contract VigiliaEscrowTest is Test {
         _escrow.claim(taskId);
     }
 
+    function test_Claim_VerificationFailedBlocksClaim() public {
+        (uint256 taskId,,) = _createFundSubmitAndVerificationFailedTask();
+
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.VerificationFailed
+            )
+        );
+        _escrow.claim(taskId);
+    }
+
     function test_Claim_DisputeBeforeReviewWindowExpiresPausesAutoClaim() public {
         (uint256 taskId,,) = _createFundSubmitAndCompleteTask();
 
@@ -558,6 +644,28 @@ contract VigiliaEscrowTest is Test {
         (,,,,,,, VigiliaEscrow.TaskState state, VigiliaEscrow.TaskState previousState,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Disputed));
         assertEq(uint256(previousState), uint256(VigiliaEscrow.TaskState.Funded));
+    }
+
+    function test_RaiseDispute_ClientRaisesDisputeFromVerificationFailed() public {
+        (uint256 taskId,,) = _createFundSubmitAndVerificationFailedTask();
+
+        vm.prank(_client);
+        _escrow.raiseDispute(taskId, "ipfs://client-dispute");
+
+        (,,,,,,, VigiliaEscrow.TaskState state, VigiliaEscrow.TaskState previousState,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Disputed));
+        assertEq(uint256(previousState), uint256(VigiliaEscrow.TaskState.VerificationFailed));
+    }
+
+    function test_RaiseDispute_ContractorRaisesDisputeFromVerificationFailed() public {
+        (uint256 taskId,,) = _createFundSubmitAndVerificationFailedTask();
+
+        vm.prank(_contractor);
+        _escrow.raiseDispute(taskId, "ipfs://contractor-dispute");
+
+        (,,,,,,, VigiliaEscrow.TaskState state, VigiliaEscrow.TaskState previousState,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Disputed));
+        assertEq(uint256(previousState), uint256(VigiliaEscrow.TaskState.VerificationFailed));
     }
 
     function test_ResolveDispute_ResolverAwardsFullContractorPayout() public {
@@ -764,6 +872,18 @@ contract VigiliaEscrowTest is Test {
         _escrow.cancelTask(taskId);
     }
 
+    function test_CancelTask_CannotCancelVerificationFailedTask() public {
+        (uint256 taskId,,) = _createFundSubmitAndVerificationFailedTask();
+
+        vm.prank(_client);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.VerificationFailed
+            )
+        );
+        _escrow.cancelTask(taskId);
+    }
+
     function test_CancelTask_CannotCancelVerifiedCompleteTask() public {
         (uint256 taskId,,) = _createFundSubmitAndCompleteTask();
 
@@ -846,6 +966,58 @@ contract VigiliaEscrowTest is Test {
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
     }
 
+    function test_ResubmitWork_AfterVerificationFailed() public {
+        (uint256 taskId,,) = _createFundSubmitAndVerificationFailedTask();
+
+        vm.prank(_contractor);
+        (uint256 secondSubmissionId,) = _escrow.submitWork(taskId, "ipfs://evidence-v2", keccak256("evidence-v2"));
+
+        (,,,,, uint256 activeSubmissionId, uint256 submissionCount, VigiliaEscrow.TaskState state,,,) =
+            _escrow.tasks(taskId);
+
+        assertEq(secondSubmissionId, 2);
+        assertEq(activeSubmissionId, secondSubmissionId);
+        assertEq(submissionCount, 2);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
+    }
+
+    function test_RetryVerification_ClientRetriesAfterVerificationFailed() public {
+        (uint256 taskId, uint256 submissionId,) = _createFundSubmitAndVerificationFailedTask();
+        bytes32 expectedRequestId =
+            keccak256(abi.encode(address(_escrow), taskId, submissionId, _EVIDENCE_URI, uint256(2)));
+
+        vm.expectEmit(true, true, true, true);
+        emit VerificationRetried(taskId, submissionId, _client, expectedRequestId);
+
+        vm.prank(_client);
+        bytes32 requestId = _escrow.retryVerification(taskId);
+
+        (,,,, bytes32 storedRequestId,,,) = _escrow.submissions(submissionId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+
+        assertEq(requestId, expectedRequestId);
+        assertEq(storedRequestId, expectedRequestId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
+    }
+
+    function test_RetryVerification_ContractorRetriesAfterVerificationFailed() public {
+        (uint256 taskId, uint256 submissionId,) = _createFundSubmitAndVerificationFailedTask();
+
+        vm.prank(_contractor);
+        bytes32 requestId = _escrow.retryVerification(taskId);
+
+        (,,,, bytes32 storedRequestId,,,) = _escrow.submissions(submissionId);
+        assertEq(storedRequestId, requestId);
+    }
+
+    function test_RetryVerification_NonPartyReverts() public {
+        (uint256 taskId,,) = _createFundSubmitAndVerificationFailedTask();
+
+        vm.prank(_attacker);
+        vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.Unauthorized.selector, _attacker));
+        _escrow.retryVerification(taskId);
+    }
+
     function _createTask() private returns (uint256 taskId) {
         vm.prank(_client);
         taskId = _escrow.createTask(_contractor, _resolver, _TASK_AMOUNT, _REVIEW_WINDOW, _REQUIREMENTS_URI);
@@ -888,6 +1060,14 @@ contract VigiliaEscrowTest is Test {
         _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.NeedsReview);
     }
 
+    function _createFundSubmitAndVerificationFailedTask()
+        private
+        returns (uint256 taskId, uint256 submissionId, bytes32 requestId)
+    {
+        (taskId, submissionId, requestId) = _createFundAndSubmitTask();
+        _recordVerificationFailure(taskId, submissionId);
+    }
+
     function _createFundSubmitApproveTask() private returns (uint256 taskId, uint256 submissionId, bytes32 requestId) {
         (taskId, submissionId, requestId) = _createFundSubmitAndCompleteTask();
 
@@ -898,5 +1078,10 @@ contract VigiliaEscrowTest is Test {
     function _recordVerdict(uint256 _taskId, uint256 _submissionId, VigiliaTypes.VerificationVerdict _verdict) private {
         vm.prank(address(_verifier));
         _escrow.recordVerdict(_taskId, _submissionId, _verdict, _VERIFIER_NOTES_URI);
+    }
+
+    function _recordVerificationFailure(uint256 _taskId, uint256 _submissionId) private {
+        vm.prank(address(_verifier));
+        _escrow.recordVerificationFailure(_taskId, _submissionId, _VERIFIER_NOTES_URI);
     }
 }

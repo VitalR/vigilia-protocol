@@ -86,6 +86,11 @@ contract MockSomniaAgentRequester is ISomniaAgentRequester {
         ResponseStatus _status,
         Request memory _details
     ) external {
+        if (_details.remainingBudget != 0) {
+            (bool success,) = payable(_callback).call{ value: _details.remainingBudget }("");
+            require(success);
+        }
+
         IMockSomniaCallback(_callback).handleResponse(_requestId, _responses, _status, _details);
     }
 }

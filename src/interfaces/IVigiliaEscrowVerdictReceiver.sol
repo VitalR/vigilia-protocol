@@ -17,4 +17,11 @@ interface IVigiliaEscrowVerdictReceiver {
         VigiliaTypes.VerificationVerdict _verdict,
         string calldata _verifierNotesURI
     ) external;
+
+    /// @notice Records terminal verifier infrastructure failure for an escrow submission.
+    /// @param _taskId Task whose verification request failed.
+    /// @param _submissionId Active submission whose request failed.
+    /// @param _failureNotesURI Public URI or deterministic note describing the failure.
+    function recordVerificationFailure(uint256 _taskId, uint256 _submissionId, string calldata _failureNotesURI)
+        external;
 }

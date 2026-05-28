@@ -108,7 +108,7 @@ contract VigiliaTrustedCallbackVerifierTest is Test {
     function test_RequestVerification_UnauthorizedCallerReverts() public {
         vm.prank(_attacker);
         vm.expectRevert(abi.encodeWithSelector(VigiliaTrustedCallbackVerifier.Unauthorized.selector, _attacker));
-        _agentVerifier.requestVerification(1, 1, _EVIDENCE_URI);
+        _agentVerifier.requestVerification(1, 1, _attacker, _EVIDENCE_URI);
     }
 
     function test_HandleAgentCallback_CallbackSenderMarksComplete() public {

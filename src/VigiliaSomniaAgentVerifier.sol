@@ -16,12 +16,14 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
     /// @notice Stored metadata for a Somnia platform request.
     /// @param taskId Vigilia task being verified.
     /// @param submissionId Vigilia submission being verified.
+    /// @param payer Account that paid the verification deposit and receives attributable rebates.
     /// @param evidenceURIHash Hash of the submitted evidence URI.
     /// @param exists True once the platform request is tracked.
     /// @param fulfilled True after a terminal platform callback is accepted.
     struct VerificationRequest {
         uint256 taskId;
         uint256 submissionId;
+        address payer;
         bytes32 evidenceURIHash;
         bool exists;
         bool fulfilled;
@@ -68,17 +70,56 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
     /// @param taskId Task whose verification failed or timed out.
     /// @param submissionId Submission whose verification failed or timed out.
     /// @param status Terminal platform status.
+    /// @param failureNotesURI Public note describing the failure class.
     event SomniaVerificationFailed(
         uint256 indexed platformRequestId,
         uint256 indexed taskId,
         uint256 indexed submissionId,
-        ISomniaAgentRequester.ResponseStatus status
+        ISomniaAgentRequester.ResponseStatus status,
+        string failureNotesURI
     );
+
+    /// @notice Emitted when forwarding a terminal verifier result to escrow fails.
+    /// @param platformRequestId Somnia platform request identifier.
+    /// @param taskId Task whose result could not be forwarded.
+    /// @param submissionId Submission whose result could not be forwarded.
+    /// @param returnData Raw revert data returned by escrow.
+    event EscrowForwardingFailed(
+        uint256 indexed platformRequestId, uint256 indexed taskId, uint256 indexed submissionId, bytes returnData
+    );
+
+    /// @notice Emitted when platform callback details attribute remaining request budget to the payer.
+    /// @param payer Account that paid the original verification deposit.
+    /// @param platformRequestId Somnia platform request identifier.
+    /// @param amount Native-token rebate credit attributed from callback details.
+    event VerificationRebateCredited(address indexed payer, uint256 indexed platformRequestId, uint256 amount);
+
+    /// @notice Emitted when a payer withdraws attributed verification rebate credit.
+    /// @param payer Account withdrawing credited native tokens.
+    /// @param amount Native-token rebate amount withdrawn.
+    event VerificationRebateWithdrawn(address indexed payer, uint256 amount);
 
     /// @notice Emitted when the Somnia platform sends native-token rebate value back to this adapter.
     /// @param sender Account that sent the rebate.
     /// @param amount Native-token amount received.
     event SomniaRebateReceived(address indexed sender, uint256 amount);
+
+    /// @notice Reverts when a caller attempts to decode agent bytes without going through this contract.
+    error DecodeOnlySelf();
+
+    /// @notice Reverts when the verification deposit does not match the exact configured request cost.
+    /// @param required Required native-token deposit.
+    /// @param actual Actual native-token amount supplied.
+    error InvalidVerificationDeposit(uint256 required, uint256 actual);
+
+    /// @notice Reverts when an account has no attributed verification rebate credit.
+    /// @param account Account without rebate credit.
+    error NoPendingVerificationRebate(address account);
+
+    /// @notice Reverts when a native-token rebate transfer fails.
+    /// @param recipient Intended recipient.
+    /// @param amount Native-token amount that failed to transfer.
+    error TransferFailed(address recipient, uint256 amount);
 
     /// @notice Reverts when a required address is zero.
     error InvalidAddress();
@@ -87,10 +128,6 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
     /// @notice Reverts when attempting to bind escrow more than once.
     /// @param escrow Existing bound escrow.
     error EscrowAlreadyBound(address escrow);
-    /// @notice Reverts when the caller does not send enough STT for a Somnia request.
-    /// @param required Minimum native-token deposit required by this adapter.
-    /// @param actual Native-token amount supplied by the caller.
-    error InsufficientVerificationDeposit(uint256 required, uint256 actual);
     /// @notice Reverts when a platform request identifier is unknown.
     /// @param requestId Unknown Somnia platform request identifier.
     error UnknownRequest(uint256 requestId);
@@ -100,12 +137,6 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
     /// @notice Reverts when the platform reports a non-terminal or unsupported callback status.
     /// @param status Unsupported status.
     error UnsupportedResponseStatus(ISomniaAgentRequester.ResponseStatus status);
-    /// @notice Reverts when the successful callback has no usable response bytes.
-    /// @param requestId Somnia platform request identifier.
-    error MalformedAgentResponse(uint256 requestId);
-    /// @notice Reverts when the agent result is not one of the bounded Vigilia verdict strings.
-    /// @param result Unsupported raw result string.
-    error UnknownVerdictResult(string result);
     /// @notice Reverts when caller is not authorized for an action.
     /// @param caller Unauthorized caller.
     error Unauthorized(address caller);
@@ -134,6 +165,12 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
 
     /// @notice Request metadata by Somnia platform request identifier.
     mapping(uint256 platformRequestId => VerificationRequest request) public requests;
+
+    /// @notice Payer-attributed verification rebate credits based on terminal Somnia callback details.
+    mapping(address payer => uint256 amount) public pendingVerificationRebates;
+
+    /// @notice Total outstanding verification rebate credits.
+    uint256 public totalPendingVerificationRebates;
 
     /// @notice Creates the Somnia verifier adapter.
     /// @param _platform Somnia Agent requester platform contract.
@@ -192,15 +229,16 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
     }
 
     /// @inheritdoc IVigiliaVerifier
-    function requestVerification(uint256 _taskId, uint256 _submissionId, string calldata _evidenceURI)
+    function requestVerification(uint256 _taskId, uint256 _submissionId, address _payer, string calldata _evidenceURI)
         external
         payable
         returns (bytes32 vigiliaRequestId)
     {
         if (msg.sender != escrow) revert Unauthorized(msg.sender);
+        if (_payer == address(0)) revert InvalidAddress();
 
         uint256 requiredDeposit = minimumRequestDeposit();
-        if (msg.value < requiredDeposit) revert InsufficientVerificationDeposit(requiredDeposit, msg.value);
+        if (msg.value != requiredDeposit) revert InvalidVerificationDeposit(requiredDeposit, msg.value);
 
         bytes memory payload = abi.encodeWithSelector(IJsonApiAgent.fetchString.selector, _evidenceURI, verdictSelector);
         uint256 platformRequestId =
@@ -210,6 +248,7 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
         requests[platformRequestId] = VerificationRequest({
             taskId: _taskId,
             submissionId: _submissionId,
+            payer: _payer,
             evidenceURIHash: keccak256(bytes(_evidenceURI)),
             exists: true,
             fulfilled: false
@@ -222,9 +261,34 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
         );
     }
 
+    /// @notice Withdraws verification rebate credit attributed from terminal Somnia callback details.
+    /// @dev Credits are cleared before transfer. Attribution is based on `_details.remainingBudget`; the platform must
+    /// also deliver enough native-token rebate value for withdrawals to succeed.
+    function withdrawVerificationRebate() external {
+        uint256 amount = pendingVerificationRebates[msg.sender];
+        if (amount == 0) revert NoPendingVerificationRebate(msg.sender);
+
+        pendingVerificationRebates[msg.sender] = 0;
+        totalPendingVerificationRebates -= amount;
+
+        (bool success,) = msg.sender.call{ value: amount }("");
+        if (!success) revert TransferFailed(msg.sender, amount);
+
+        emit VerificationRebateWithdrawn(msg.sender, amount);
+    }
+
+    /// @notice Decodes ABI-encoded string agent output.
+    /// @dev Externally callable only by this contract so malformed bytes can be caught with try/catch.
+    /// @param _result ABI-encoded string bytes returned by the JSON API Request agent.
+    /// @return decoded Decoded string.
+    function decodeAgentString(bytes calldata _result) external view returns (string memory decoded) {
+        if (msg.sender != address(this)) revert DecodeOnlySelf();
+        decoded = abi.decode(_result, (string));
+    }
+
     /// @notice Handles the final Somnia Agent platform callback for a tracked request.
-    /// @dev Only the platform can call this function. Failed and timed-out requests are terminal but do not record an
-    /// escrow verdict, keeping settlement blocked until a future product flow introduces explicit retry handling.
+    /// @dev Only the platform can call this function. Terminal infrastructure failures are forwarded to escrow as
+    /// `VerificationFailed` so tasks remain retryable and do not get stuck in `Submitted`.
     /// @param _requestId Somnia platform request identifier.
     /// @param _responses Validator responses supplied by the platform.
     /// @param _status Final platform status.
@@ -235,8 +299,9 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
         ISomniaAgentRequester.ResponseStatus _status,
         ISomniaAgentRequester.Request memory _details
     ) external {
-        _details;
-        if (msg.sender != address(platform)) revert Unauthorized(msg.sender);
+        if (msg.sender != address(platform)) {
+            revert Unauthorized(msg.sender);
+        }
 
         VerificationRequest storage request = requests[_requestId];
         if (!request.exists) revert UnknownRequest(_requestId);
@@ -247,60 +312,111 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
                 || _status == ISomniaAgentRequester.ResponseStatus.TimedOut
         ) {
             request.fulfilled = true;
-            emit SomniaVerificationFailed(_requestId, request.taskId, request.submissionId, _status);
+            _creditRebate(_requestId, request.payer, _details.remainingBudget);
+            _forwardVerificationFailure(_requestId, request, _status, _somniaNotesUri(_requestId));
             return;
         }
 
         if (_status != ISomniaAgentRequester.ResponseStatus.Success) revert UnsupportedResponseStatus(_status);
 
-        string memory result = _decodeSuccessfulResult(_requestId, _responses);
-        VigiliaTypes.VerificationVerdict verdict = _parseVerdict(result);
-
         request.fulfilled = true;
+        _creditRebate(_requestId, request.payer, _details.remainingBudget);
 
-        IVigiliaEscrowVerdictReceiver(escrow)
-            .recordVerdict(request.taskId, request.submissionId, verdict, _somniaNotesUri(_requestId));
+        (bool decoded, string memory result) = _decodeSuccessfulResult(_responses);
+        if (!decoded) {
+            _forwardVerificationFailure(_requestId, request, _status, _failureNotesUri(_requestId, "malformed"));
+            return;
+        }
 
-        emit SomniaVerificationSucceeded(_requestId, request.taskId, request.submissionId, verdict, result);
+        (bool parsed, VigiliaTypes.VerificationVerdict verdict) = _parseVerdict(result);
+        if (!parsed) {
+            _forwardVerificationFailure(_requestId, request, _status, _failureNotesUri(_requestId, "unknown-verdict"));
+            return;
+        }
+
+        try IVigiliaEscrowVerdictReceiver(escrow)
+            .recordVerdict(request.taskId, request.submissionId, verdict, _somniaNotesUri(_requestId)) {
+            emit SomniaVerificationSucceeded(_requestId, request.taskId, request.submissionId, verdict, result);
+        } catch (bytes memory returnData) {
+            emit EscrowForwardingFailed(_requestId, request.taskId, request.submissionId, returnData);
+        }
     }
 
     /// @dev Extracts and decodes the first successful validator result from a successful platform callback.
-    function _decodeSuccessfulResult(uint256 _requestId, ISomniaAgentRequester.Response[] memory _responses)
+    function _decodeSuccessfulResult(ISomniaAgentRequester.Response[] memory _responses)
         private
-        pure
-        returns (string memory result)
+        view
+        returns (bool decoded, string memory result)
     {
         for (uint256 i = 0; i < _responses.length; ++i) {
             if (
                 _responses[i].status == ISomniaAgentRequester.ResponseStatus.Success && _responses[i].result.length != 0
             ) {
-                return abi.decode(_responses[i].result, (string));
+                try this.decodeAgentString(_responses[i].result) returns (string memory decodedResult) {
+                    return (true, decodedResult);
+                } catch {
+                    return (false, "");
+                }
             }
         }
 
-        revert MalformedAgentResponse(_requestId);
+        return (false, "");
     }
 
     /// @dev Maps exact bounded agent output strings into the shared Vigilia verdict enum.
-    function _parseVerdict(string memory _result) private pure returns (VigiliaTypes.VerificationVerdict verdict) {
+    function _parseVerdict(string memory _result)
+        private
+        pure
+        returns (bool parsed, VigiliaTypes.VerificationVerdict verdict)
+    {
         bytes32 resultHash = keccak256(bytes(_result));
 
         if (resultHash == keccak256("Complete") || resultHash == keccak256("COMPLETE")) {
-            return VigiliaTypes.VerificationVerdict.Complete;
+            return (true, VigiliaTypes.VerificationVerdict.Complete);
         }
         if (resultHash == keccak256("NeedsReview") || resultHash == keccak256("NEEDS_REVIEW")) {
-            return VigiliaTypes.VerificationVerdict.NeedsReview;
+            return (true, VigiliaTypes.VerificationVerdict.NeedsReview);
         }
         if (resultHash == keccak256("Incomplete") || resultHash == keccak256("INCOMPLETE")) {
-            return VigiliaTypes.VerificationVerdict.Incomplete;
+            return (true, VigiliaTypes.VerificationVerdict.Incomplete);
         }
 
-        revert UnknownVerdictResult(_result);
+        return (false, VigiliaTypes.VerificationVerdict.Unknown);
+    }
+
+    /// @dev Credits request payer with unused budget reported by terminal platform callback details.
+    function _creditRebate(uint256 _requestId, address _payer, uint256 _remainingBudget) private {
+        if (_remainingBudget == 0) return;
+
+        pendingVerificationRebates[_payer] += _remainingBudget;
+        totalPendingVerificationRebates += _remainingBudget;
+
+        emit VerificationRebateCredited(_payer, _requestId, _remainingBudget);
+    }
+
+    /// @dev Forwards terminal infrastructure failure to escrow and preserves callback finality if escrow rejects it.
+    function _forwardVerificationFailure(
+        uint256 _requestId,
+        VerificationRequest storage _request,
+        ISomniaAgentRequester.ResponseStatus _status,
+        string memory _failureNotesURI
+    ) private {
+        try IVigiliaEscrowVerdictReceiver(escrow)
+            .recordVerificationFailure(_request.taskId, _request.submissionId, _failureNotesURI) {
+            emit SomniaVerificationFailed(_requestId, _request.taskId, _request.submissionId, _status, _failureNotesURI);
+        } catch (bytes memory returnData) {
+            emit EscrowForwardingFailed(_requestId, _request.taskId, _request.submissionId, returnData);
+        }
     }
 
     /// @dev Provides a deterministic on-chain note that off-chain indexers can pair with Somnia receipt APIs.
     function _somniaNotesUri(uint256 _requestId) private pure returns (string memory notesURI) {
         notesURI = string.concat("somnia-agent-request:", _uintToString(_requestId));
+    }
+
+    /// @dev Adds a compact failure reason to the deterministic Somnia request note.
+    function _failureNotesUri(uint256 _requestId, string memory _reason) private pure returns (string memory notesURI) {
+        notesURI = string.concat(_somniaNotesUri(_requestId), ":", _reason);
     }
 
     /// @dev Converts a request identifier into decimal text without importing external string helpers.

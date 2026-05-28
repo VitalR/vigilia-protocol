@@ -28,6 +28,19 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         string rawResult
     );
 
+    event SomniaVerificationFailed(
+        uint256 indexed platformRequestId,
+        uint256 indexed taskId,
+        uint256 indexed submissionId,
+        ISomniaAgentRequester.ResponseStatus status,
+        string failureNotesURI
+    );
+
+    event VerificationRebateCredited(address indexed payer, uint256 indexed platformRequestId, uint256 amount);
+    event VerificationRebateWithdrawn(address indexed payer, uint256 amount);
+    event EscrowForwardingFailed(
+        uint256 indexed platformRequestId, uint256 indexed taskId, uint256 indexed submissionId, bytes returnData
+    );
     event SomniaRebateReceived(address indexed sender, uint256 amount);
 
     uint256 private constant _AGENT_ID = 42;
@@ -81,22 +94,33 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         assertEq(address(_escrow).balance, _TASK_AMOUNT);
     }
 
-    function test_SubmitWork_InsufficientVerificationDepositReverts() public {
+    function test_SubmitWork_UnderpaymentVerificationDepositReverts() public {
         uint256 taskId = _createAndFundTask();
         uint256 requiredDeposit = _requiredDeposit();
 
         vm.prank(_contractor);
         vm.expectRevert(
             abi.encodeWithSelector(
-                VigiliaSomniaAgentVerifier.InsufficientVerificationDeposit.selector,
-                requiredDeposit,
-                requiredDeposit - 1
+                VigiliaSomniaAgentVerifier.InvalidVerificationDeposit.selector, requiredDeposit, requiredDeposit - 1
             )
         );
         _escrow.submitWork{ value: requiredDeposit - 1 }(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Funded));
+    }
+
+    function test_SubmitWork_OverpaymentVerificationDepositReverts() public {
+        uint256 taskId = _createAndFundTask();
+        uint256 requiredDeposit = _requiredDeposit();
+
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VigiliaSomniaAgentVerifier.InvalidVerificationDeposit.selector, requiredDeposit, requiredDeposit + 1
+            )
+        );
+        _escrow.submitWork{ value: requiredDeposit + 1 }(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
     }
 
     function test_SubmitWork_CreatesExpectedSomniaRequest() public {
@@ -156,16 +180,18 @@ contract VigiliaSomniaAgentVerifierTest is Test {
     }
 
     function test_HandleResponse_UnknownVerdictFailsClosed() public {
-        _submitWork();
+        (uint256 taskId,,) = _submitWork();
         ISomniaAgentRequester.Response[] memory responses = _responses("Unknown");
         ISomniaAgentRequester.Request memory details;
 
-        vm.expectRevert(abi.encodeWithSelector(VigiliaSomniaAgentVerifier.UnknownVerdictResult.selector, "Unknown"));
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
     }
 
     function test_HandleResponse_MalformedResultFailsClosed() public {
-        _submitWork();
+        (uint256 taskId,,) = _submitWork();
         ISomniaAgentRequester.Response[] memory responses = new ISomniaAgentRequester.Response[](1);
         responses[0] = ISomniaAgentRequester.Response({
             validator: address(0xAA),
@@ -177,8 +203,10 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         });
         ISomniaAgentRequester.Request memory details;
 
-        vm.expectRevert();
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
     }
 
     function test_HandleResponse_NonPlatformCallerReverts() public {
@@ -215,12 +243,17 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         ISomniaAgentRequester.Response[] memory responses = new ISomniaAgentRequester.Response[](0);
         ISomniaAgentRequester.Request memory details;
 
+        vm.expectEmit(true, true, true, true, address(_verifier));
+        emit SomniaVerificationFailed(
+            1, taskId, 1, ISomniaAgentRequester.ResponseStatus.Failed, "somnia-agent-request:1"
+        );
+
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Failed, details);
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
-        (,,,, bool fulfilled) = _verifier.requests(1);
+        (,,,,, bool fulfilled) = _verifier.requests(1);
 
-        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
         assertTrue(fulfilled);
     }
 
@@ -232,10 +265,81 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.TimedOut, details);
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
-        (,,,, bool fulfilled) = _verifier.requests(1);
+        (,,,,, bool fulfilled) = _verifier.requests(1);
 
-        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
         assertTrue(fulfilled);
+    }
+
+    function test_HandleResponse_WhenEscrowRejectsFailureEmitsForwardingFailure() public {
+        (uint256 taskId,,) = _submitWork();
+        ISomniaAgentRequester.Response[] memory responses = new ISomniaAgentRequester.Response[](0);
+        ISomniaAgentRequester.Request memory details;
+
+        vm.prank(_client);
+        _escrow.raiseDispute(taskId, "ipfs://dispute-before-callback");
+
+        bytes memory returnData =
+            abi.encodeWithSelector(VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.Disputed);
+
+        vm.expectEmit(true, true, true, true, address(_verifier));
+        emit EscrowForwardingFailed(1, taskId, 1, returnData);
+
+        _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Failed, details);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, bool fulfilled) = _verifier.requests(1);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Disputed));
+        assertTrue(fulfilled);
+    }
+
+    function test_RequestVerification_StoresPayer() public {
+        _submitWork();
+
+        (,, address payer,, bool exists, bool fulfilled) = _verifier.requests(1);
+
+        assertEq(payer, _contractor);
+        assertTrue(exists);
+        assertFalse(fulfilled);
+    }
+
+    function test_HandleResponse_RemainingBudgetCreditsPayerRebate() public {
+        _submitWork();
+        uint256 rebate = 0.012 ether;
+        ISomniaAgentRequester.Response[] memory responses = _responses("Complete");
+        ISomniaAgentRequester.Request memory details = _details(rebate);
+        vm.deal(address(_platform), rebate);
+
+        vm.expectEmit(true, true, false, true, address(_verifier));
+        emit VerificationRebateCredited(_contractor, 1, rebate);
+
+        _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
+
+        assertEq(_verifier.pendingVerificationRebates(_contractor), rebate);
+        assertEq(_verifier.totalPendingVerificationRebates(), rebate);
+        assertEq(address(_verifier).balance, rebate);
+        assertEq(address(_escrow).balance, _TASK_AMOUNT);
+    }
+
+    function test_WithdrawVerificationRebate_TransfersCreditAndClearsAccounting() public {
+        _submitWork();
+        uint256 rebate = 0.012 ether;
+        ISomniaAgentRequester.Response[] memory responses = _responses("Complete");
+        ISomniaAgentRequester.Request memory details = _details(rebate);
+        vm.deal(address(_platform), rebate);
+        _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
+
+        uint256 contractorBalanceBefore = _contractor.balance;
+
+        vm.expectEmit(true, false, false, true, address(_verifier));
+        emit VerificationRebateWithdrawn(_contractor, rebate);
+
+        vm.prank(_contractor);
+        _verifier.withdrawVerificationRebate();
+
+        assertEq(_verifier.pendingVerificationRebates(_contractor), 0);
+        assertEq(_verifier.totalPendingVerificationRebates(), 0);
+        assertEq(_contractor.balance, contractorBalanceBefore + rebate);
     }
 
     function test_Receive_AcceptsPlatformRebate() public {
@@ -262,6 +366,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
 
         assertEq(address(_escrow).balance, escrowBefore);
         assertEq(address(_platform).balance, platformBefore + deposit);
+        assertEq(_verifier.totalPendingVerificationRebates(), 0);
         assertEq(_contractor.balance, 100 ether - deposit);
     }
 
@@ -305,6 +410,10 @@ contract VigiliaSomniaAgentVerifierTest is Test {
             timestamp: block.timestamp,
             executionCost: 0
         });
+    }
+
+    function _details(uint256 _remainingBudget) private pure returns (ISomniaAgentRequester.Request memory details) {
+        details.remainingBudget = _remainingBudget;
     }
 
     function _requiredDeposit() private pure returns (uint256 deposit) {

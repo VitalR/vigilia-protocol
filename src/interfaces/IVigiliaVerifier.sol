@@ -9,9 +9,10 @@ interface IVigiliaVerifier {
     /// separate from this fee path.
     /// @param _taskId Vigilia task being verified.
     /// @param _submissionId Submission tied to the task.
+    /// @param _payer Account that paid the verification deposit and should receive attributable rebates.
     /// @param _evidenceURI Public URI containing evidence metadata for the verifier to inspect.
     /// @return requestId Verifier request identifier later referenced by the bounded verdict.
-    function requestVerification(uint256 _taskId, uint256 _submissionId, string calldata _evidenceURI)
+    function requestVerification(uint256 _taskId, uint256 _submissionId, address _payer, string calldata _evidenceURI)
         external
         payable
         returns (bytes32 requestId);

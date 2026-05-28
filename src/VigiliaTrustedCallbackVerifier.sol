@@ -105,7 +105,7 @@ contract VigiliaTrustedCallbackVerifier is IVigiliaVerifier {
     }
 
     /// @inheritdoc IVigiliaVerifier
-    function requestVerification(uint256 _taskId, uint256 _submissionId, string calldata _evidenceURI)
+    function requestVerification(uint256 _taskId, uint256 _submissionId, address, string calldata _evidenceURI)
         external
         payable
         returns (bytes32 requestId)
