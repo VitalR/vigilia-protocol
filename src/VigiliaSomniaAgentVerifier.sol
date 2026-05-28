@@ -88,6 +88,18 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
         uint256 indexed platformRequestId, uint256 indexed taskId, uint256 indexed submissionId, bytes returnData
     );
 
+    /// @notice Emitted when an old terminal callback arrives after a newer request became active.
+    /// @param platformRequestId Stale Somnia platform request identifier.
+    /// @param activePlatformRequestId Current active platform request for the task/submission.
+    /// @param taskId Task whose old callback was ignored.
+    /// @param submissionId Submission whose old callback was ignored.
+    event StaleSomniaCallbackIgnored(
+        uint256 indexed platformRequestId,
+        uint256 indexed activePlatformRequestId,
+        uint256 indexed taskId,
+        uint256 submissionId
+    );
+
     /// @notice Emitted when platform callback details attribute remaining request budget to the payer.
     /// @param payer Account that paid the original verification deposit.
     /// @param platformRequestId Somnia platform request identifier.
@@ -165,6 +177,11 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
 
     /// @notice Request metadata by Somnia platform request identifier.
     mapping(uint256 platformRequestId => VerificationRequest request) public requests;
+
+    /// @notice Current platform request for each task/submission pair.
+    /// @dev Used to ignore old callbacks after `VigiliaEscrow.retryVerification` creates a newer request for the same
+    /// active submission. Escrow also validates request IDs defensively.
+    mapping(uint256 taskId => mapping(uint256 submissionId => uint256 platformRequestId)) public activePlatformRequest;
 
     /// @notice Payer-attributed verification rebate credits based on terminal Somnia callback details.
     mapping(address payer => uint256 amount) public pendingVerificationRebates;
@@ -253,6 +270,7 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
             exists: true,
             fulfilled: false
         });
+        activePlatformRequest[_taskId][_submissionId] = platformRequestId;
 
         vigiliaRequestId = bytes32(platformRequestId);
 
@@ -305,6 +323,15 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
 
         VerificationRequest storage request = requests[_requestId];
         if (!request.exists) revert UnknownRequest(_requestId);
+        uint256 activeRequestId = activePlatformRequest[request.taskId][request.submissionId];
+        if (activeRequestId != _requestId) {
+            if (!request.fulfilled) {
+                request.fulfilled = true;
+                _creditRebate(_requestId, request.payer, _details.remainingBudget);
+            }
+            emit StaleSomniaCallbackIgnored(_requestId, activeRequestId, request.taskId, request.submissionId);
+            return;
+        }
         if (request.fulfilled) revert RequestAlreadyFulfilled(_requestId);
 
         if (
@@ -334,12 +361,7 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
             return;
         }
 
-        try IVigiliaEscrowVerdictReceiver(escrow)
-            .recordVerdict(request.taskId, request.submissionId, verdict, _somniaNotesUri(_requestId)) {
-            emit SomniaVerificationSucceeded(_requestId, request.taskId, request.submissionId, verdict, result);
-        } catch (bytes memory returnData) {
-            emit EscrowForwardingFailed(_requestId, request.taskId, request.submissionId, returnData);
-        }
+        _forwardVerdict(_requestId, request, verdict, result);
     }
 
     /// @dev Extracts and decodes the first successful validator result from a successful platform callback.
@@ -402,8 +424,25 @@ contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
         string memory _failureNotesURI
     ) private {
         try IVigiliaEscrowVerdictReceiver(escrow)
-            .recordVerificationFailure(_request.taskId, _request.submissionId, _failureNotesURI) {
+            .recordVerificationFailure(_request.taskId, _request.submissionId, bytes32(_requestId), _failureNotesURI) {
             emit SomniaVerificationFailed(_requestId, _request.taskId, _request.submissionId, _status, _failureNotesURI);
+        } catch (bytes memory returnData) {
+            emit EscrowForwardingFailed(_requestId, _request.taskId, _request.submissionId, returnData);
+        }
+    }
+
+    /// @dev Forwards a bounded verdict to escrow and preserves callback finality if escrow rejects it.
+    function _forwardVerdict(
+        uint256 _requestId,
+        VerificationRequest storage _request,
+        VigiliaTypes.VerificationVerdict _verdict,
+        string memory _result
+    ) private {
+        try IVigiliaEscrowVerdictReceiver(escrow)
+            .recordVerdict(
+                _request.taskId, _request.submissionId, bytes32(_requestId), _verdict, _somniaNotesUri(_requestId)
+            ) {
+            emit SomniaVerificationSucceeded(_requestId, _request.taskId, _request.submissionId, _verdict, _result);
         } catch (bytes memory returnData) {
             emit EscrowForwardingFailed(_requestId, _request.taskId, _request.submissionId, returnData);
         }

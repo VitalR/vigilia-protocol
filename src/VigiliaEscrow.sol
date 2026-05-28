@@ -157,6 +157,12 @@ contract VigiliaEscrow {
     /// @param taskId Task being checked.
     /// @param submissionId Submission being checked.
     error InvalidSubmission(uint256 taskId, uint256 submissionId);
+    /// @notice Reverts when a verifier callback does not match the active submission's current request.
+    /// @param taskId Task being checked.
+    /// @param submissionId Submission being checked.
+    /// @param expectedRequestId Request identifier stored on the active submission.
+    /// @param actualRequestId Request identifier supplied by the verifier callback.
+    error InvalidRequestId(uint256 taskId, uint256 submissionId, bytes32 expectedRequestId, bytes32 actualRequestId);
     /// @notice Reverts when a task identifier has not been created.
     /// @param taskId Missing task identifier.
     error TaskDoesNotExist(uint256 taskId);
@@ -350,14 +356,17 @@ contract VigiliaEscrow {
         emit WorkSubmitted(_taskId, submissionId, msg.sender, _evidenceURI, _evidenceHash, requestId);
     }
 
-    /// @notice Records a bounded verifier verdict for the active submission and updates task state deterministically.
+    /// @notice Records a bounded verifier verdict for the active submission and current request.
+    /// @dev Request ID validation prevents stale callbacks from older verifier requests after `retryVerification`.
     /// @param _taskId Task that was verified.
     /// @param _submissionId Submission receiving the verdict.
+    /// @param _requestId Verifier request identifier that must match the active submission.
     /// @param _verdict Bounded verifier result. Unknown is rejected and fails closed.
     /// @param _verifierNotesURI Optional public URI with verifier summary, missing fields, or receipt metadata.
     function recordVerdict(
         uint256 _taskId,
         uint256 _submissionId,
+        bytes32 _requestId,
         VigiliaTypes.VerificationVerdict _verdict,
         string calldata _verifierNotesURI
     ) external {
@@ -370,6 +379,7 @@ contract VigiliaEscrow {
 
         Submission storage submission = submissions[_submissionId];
         if (submission.requestId == bytes32(0)) revert ZeroRequestId();
+        _requireCurrentRequest(_taskId, _submissionId, submission.requestId, _requestId);
 
         submission.verdict = _verdict;
         submission.verifiedAt = uint64(block.timestamp);
@@ -385,15 +395,20 @@ contract VigiliaEscrow {
         emit VerdictRecorded(_taskId, _submissionId, _verdict, submission.requestId, _verifierNotesURI);
     }
 
-    /// @notice Records terminal verifier infrastructure failure for the active submission.
+    /// @notice Records terminal verifier infrastructure failure for the active submission and current request.
     /// @dev This is distinct from an `Incomplete` work verdict. It leaves the submission verdict unchanged and moves
-    /// the task into a retryable/manual-review state.
+    /// the task into a retryable/manual-review state. Request ID validation prevents stale callbacks from older
+    /// verifier requests after `retryVerification`.
     /// @param _taskId Task whose verification request failed.
     /// @param _submissionId Active submission whose request failed.
+    /// @param _requestId Verifier request identifier that must match the active submission.
     /// @param _failureNotesURI Public URI or deterministic note describing the failure.
-    function recordVerificationFailure(uint256 _taskId, uint256 _submissionId, string calldata _failureNotesURI)
-        external
-    {
+    function recordVerificationFailure(
+        uint256 _taskId,
+        uint256 _submissionId,
+        bytes32 _requestId,
+        string calldata _failureNotesURI
+    ) external {
         if (msg.sender != address(verifier)) revert Unauthorized(msg.sender);
 
         Task storage task = _existingTask(_taskId);
@@ -402,6 +417,7 @@ contract VigiliaEscrow {
 
         Submission storage submission = submissions[_submissionId];
         if (submission.requestId == bytes32(0)) revert ZeroRequestId();
+        _requireCurrentRequest(_taskId, _submissionId, submission.requestId, _requestId);
 
         task.state = TaskState.VerificationFailed;
 
@@ -410,6 +426,7 @@ contract VigiliaEscrow {
 
     /// @notice Retries verifier inspection for the active verification-failed submission.
     /// @dev Either task party can pay for retry. This does not alter evidence, verdict, or submission count.
+    /// A retry creates a new verifier request for the same active submission, making old request callbacks stale.
     /// @param _taskId Task whose active failed submission should be retried.
     /// @return requestId New verifier request identifier returned by the configured verifier.
     function retryVerification(uint256 _taskId) external payable returns (bytes32 requestId) {
@@ -595,6 +612,18 @@ contract VigiliaEscrow {
         Submission storage submission = submissions[_submissionId];
         if (_task.activeSubmissionId != _submissionId || submission.taskId != _taskId) {
             revert InvalidSubmission(_taskId, _submissionId);
+        }
+    }
+
+    /// @dev Rejects stale verifier callbacks whose request ID no longer matches the active submission.
+    function _requireCurrentRequest(
+        uint256 _taskId,
+        uint256 _submissionId,
+        bytes32 _expectedRequestId,
+        bytes32 _actualRequestId
+    ) private pure {
+        if (_expectedRequestId != _actualRequestId) {
+            revert InvalidRequestId(_taskId, _submissionId, _expectedRequestId, _actualRequestId);
         }
     }
 

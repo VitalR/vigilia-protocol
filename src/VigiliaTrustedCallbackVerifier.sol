@@ -39,6 +39,15 @@ contract VigiliaTrustedCallbackVerifier is IVigiliaVerifier {
         string verifierNotesURI
     );
 
+    /// @notice Emitted when an old trusted callback arrives after a newer request became active.
+    /// @param requestId Stale trusted request identifier.
+    /// @param activeRequestId Current active request for the task/submission.
+    /// @param taskId Task whose old callback was ignored.
+    /// @param submissionId Submission whose old callback was ignored.
+    event StaleTrustedCallbackIgnored(
+        bytes32 indexed requestId, bytes32 indexed activeRequestId, uint256 indexed taskId, uint256 submissionId
+    );
+
     /// @notice Reverts when a required address is zero.
     error InvalidAddress();
     /// @notice Reverts when attempting to bind escrow more than once.
@@ -77,6 +86,10 @@ contract VigiliaTrustedCallbackVerifier is IVigiliaVerifier {
 
     /// @notice Request metadata by request identifier.
     mapping(bytes32 requestId => VerificationRequest request) public requests;
+
+    /// @notice Current trusted request for each task/submission pair.
+    /// @dev Old callbacks are ignored after retry creates a newer request for the same active submission.
+    mapping(uint256 taskId => mapping(uint256 submissionId => bytes32 requestId)) public activeRequest;
 
     /// @notice Creates the adapter with deployment-time binder and trusted callback sender.
     /// @param _escrowBinder Account allowed to call `bindEscrow` once after escrow deployment.
@@ -122,6 +135,7 @@ contract VigiliaTrustedCallbackVerifier is IVigiliaVerifier {
             exists: true,
             fulfilled: false
         });
+        activeRequest[_taskId][_submissionId] = requestId;
 
         emit TrustedVerificationRequested(requestId, _taskId, _submissionId, _evidenceURI);
     }
@@ -140,12 +154,18 @@ contract VigiliaTrustedCallbackVerifier is IVigiliaVerifier {
 
         VerificationRequest storage request = requests[_requestId];
         if (!request.exists) revert UnknownRequest(_requestId);
+        bytes32 currentRequestId = activeRequest[request.taskId][request.submissionId];
+        if (currentRequestId != _requestId) {
+            request.fulfilled = true;
+            emit StaleTrustedCallbackIgnored(_requestId, currentRequestId, request.taskId, request.submissionId);
+            return;
+        }
         if (request.fulfilled) revert RequestAlreadyFulfilled(_requestId);
 
         request.fulfilled = true;
 
         IVigiliaEscrowVerdictReceiver(escrow)
-            .recordVerdict(request.taskId, request.submissionId, _verdict, _verifierNotesURI);
+            .recordVerdict(request.taskId, request.submissionId, _requestId, _verdict, _verifierNotesURI);
 
         emit TrustedVerificationCallback(_requestId, request.taskId, request.submissionId, _verdict, _verifierNotesURI);
     }

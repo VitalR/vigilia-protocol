@@ -18,6 +18,9 @@ contract VigiliaTrustedCallbackVerifierTest is Test {
         uint8 verdict,
         string verifierNotesURI
     );
+    event StaleTrustedCallbackIgnored(
+        bytes32 indexed requestId, bytes32 indexed activeRequestId, uint256 indexed taskId, uint256 submissionId
+    );
 
     VigiliaTrustedCallbackVerifier private _agentVerifier;
     VigiliaEscrow private _escrow;
@@ -167,6 +170,43 @@ contract VigiliaTrustedCallbackVerifierTest is Test {
             abi.encodeWithSelector(VigiliaTrustedCallbackVerifier.RequestAlreadyFulfilled.selector, requestId)
         );
         _agentVerifier.handleAgentCallback(requestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
+    }
+
+    function test_HandleAgentCallback_OldRequestAfterRetryDoesNotOverwriteActiveRequest() public {
+        (uint256 taskId, uint256 submissionId, bytes32 firstRequestId) = _createFundAndSubmitTask();
+
+        vm.prank(address(_agentVerifier));
+        _escrow.recordVerificationFailure(taskId, submissionId, firstRequestId, _VERIFIER_NOTES_URI);
+
+        vm.prank(_contractor);
+        bytes32 secondRequestId = _escrow.retryVerification(taskId);
+
+        vm.expectEmit(true, true, true, true);
+        emit StaleTrustedCallbackIgnored(firstRequestId, secondRequestId, taskId, submissionId);
+
+        vm.prank(_callbackSender);
+        _agentVerifier.handleAgentCallback(
+            firstRequestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
+        );
+
+        (,,,, bytes32 storedRequestId, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,, bool oldFulfilled) = _agentVerifier.requests(firstRequestId);
+
+        assertEq(storedRequestId, secondRequestId);
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Unknown));
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
+        assertTrue(oldFulfilled);
+
+        vm.prank(_callbackSender);
+        _agentVerifier.handleAgentCallback(
+            secondRequestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
+        );
+
+        (,,,,, verdict,,) = _escrow.submissions(submissionId);
+        (,,,,,,, state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Complete));
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
     }
 
     function _createTask() private returns (uint256 taskId) {

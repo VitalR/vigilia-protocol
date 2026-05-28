@@ -41,6 +41,12 @@ contract VigiliaSomniaAgentVerifierTest is Test {
     event EscrowForwardingFailed(
         uint256 indexed platformRequestId, uint256 indexed taskId, uint256 indexed submissionId, bytes returnData
     );
+    event StaleSomniaCallbackIgnored(
+        uint256 indexed platformRequestId,
+        uint256 indexed activePlatformRequestId,
+        uint256 indexed taskId,
+        uint256 submissionId
+    );
     event SomniaRebateReceived(address indexed sender, uint256 amount);
 
     uint256 private constant _AGENT_ID = 42;
@@ -293,6 +299,61 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         assertTrue(fulfilled);
     }
 
+    function test_HandleResponse_LateSuccessForOldRequestAfterRetryIsIgnored() public {
+        (uint256 taskId, uint256 submissionId,) = _submitWork();
+        _forceEscrowVerificationFailed(taskId, submissionId, bytes32(uint256(1)));
+
+        vm.prank(_contractor);
+        bytes32 retryRequestId = _escrow.retryVerification{ value: _requiredDeposit() }(taskId);
+        assertEq(uint256(retryRequestId), 2);
+
+        ISomniaAgentRequester.Response[] memory oldResponses = _responses("Complete");
+        ISomniaAgentRequester.Request memory details;
+
+        vm.expectEmit(true, true, true, true, address(_verifier));
+        emit StaleSomniaCallbackIgnored(1, 2, taskId, submissionId);
+
+        _platform.callback(address(_verifier), 1, oldResponses, ISomniaAgentRequester.ResponseStatus.Success, details);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+        (,,,,, bool oldFulfilled) = _verifier.requests(1);
+
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Unknown));
+        assertTrue(oldFulfilled);
+
+        ISomniaAgentRequester.Response[] memory newResponses = _responses("Complete");
+        _platform.callback(address(_verifier), 2, newResponses, ISomniaAgentRequester.ResponseStatus.Success, details);
+
+        (,,,,,,, state,,,) = _escrow.tasks(taskId);
+        (,,,,, verdict,,) = _escrow.submissions(submissionId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Complete));
+    }
+
+    function test_HandleResponse_LateFailureForOldRequestAfterRetryIsIgnored() public {
+        (uint256 taskId, uint256 submissionId,) = _submitWork();
+        _forceEscrowVerificationFailed(taskId, submissionId, bytes32(uint256(1)));
+
+        vm.prank(_contractor);
+        _escrow.retryVerification{ value: _requiredDeposit() }(taskId);
+
+        ISomniaAgentRequester.Response[] memory responses = new ISomniaAgentRequester.Response[](0);
+        ISomniaAgentRequester.Request memory details;
+
+        vm.expectEmit(true, true, true, true, address(_verifier));
+        emit StaleSomniaCallbackIgnored(1, 2, taskId, submissionId);
+
+        _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Failed, details);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Unknown));
+    }
+
     function test_RequestVerification_StoresPayer() public {
         _submitWork();
 
@@ -394,6 +455,11 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         emit SomniaVerificationSucceeded(1, 1, 1, _expectedVerdict(_result), _result);
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
+    }
+
+    function _forceEscrowVerificationFailed(uint256 _taskId, uint256 _submissionId, bytes32 _requestId) private {
+        vm.prank(address(_verifier));
+        _escrow.recordVerificationFailure(_taskId, _submissionId, _requestId, "somnia-agent-request:1");
     }
 
     function _responses(string memory _result)

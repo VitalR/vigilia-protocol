@@ -307,31 +307,39 @@ contract VigiliaEscrowTest is Test {
     }
 
     function test_RecordVerdict_UnauthorizedVerifierCallerReverts() public {
-        (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
+        (uint256 taskId, uint256 submissionId, bytes32 requestId) = _createFundAndSubmitTask();
 
         vm.prank(_attacker);
         vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.Unauthorized.selector, _attacker));
-        _escrow.recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
+        _escrow.recordVerdict(
+            taskId, submissionId, requestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
+        );
     }
 
     function test_RecordVerdict_UnknownVerdictReverts() public {
-        (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
+        (uint256 taskId, uint256 submissionId, bytes32 requestId) = _createFundAndSubmitTask();
 
         vm.prank(address(_verifier));
         vm.expectRevert(VigiliaEscrow.UnknownVerdict.selector);
-        _escrow.recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Unknown, _VERIFIER_NOTES_URI);
+        _escrow.recordVerdict(
+            taskId, submissionId, requestId, VigiliaTypes.VerificationVerdict.Unknown, _VERIFIER_NOTES_URI
+        );
     }
 
     function test_RecordVerdict_WrongSubmissionTaskReverts() public {
         (uint256 firstTaskId,,) = _createFundAndSubmitTask();
-        (uint256 secondTaskId, uint256 secondSubmissionId,) = _createFundAndSubmitTask();
+        (uint256 secondTaskId, uint256 secondSubmissionId, bytes32 secondRequestId) = _createFundAndSubmitTask();
 
         vm.prank(address(_verifier));
         vm.expectRevert(
             abi.encodeWithSelector(VigiliaEscrow.InvalidSubmission.selector, firstTaskId, secondSubmissionId)
         );
         _escrow.recordVerdict(
-            firstTaskId, secondSubmissionId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
+            firstTaskId,
+            secondSubmissionId,
+            secondRequestId,
+            VigiliaTypes.VerificationVerdict.Complete,
+            _VERIFIER_NOTES_URI
         );
 
         (,,,,,,, VigiliaEscrow.TaskState firstState,,,) = _escrow.tasks(firstTaskId);
@@ -347,22 +355,43 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_contractor);
         _escrow.submitWork(taskId, "ipfs://evidence-v2", keccak256("evidence-v2"));
 
+        bytes32 firstRequestId = _submissionRequestId(firstSubmissionId);
         vm.prank(address(_verifier));
         vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.InvalidSubmission.selector, taskId, firstSubmissionId));
-        _escrow.recordVerdict(taskId, firstSubmissionId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
+        _escrow.recordVerdict(
+            taskId, firstSubmissionId, firstRequestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
+        );
     }
 
     function test_RecordVerdict_TwiceForSameSubmissionReverts() public {
         (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
         _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Complete);
 
+        bytes32 requestId = _submissionRequestId(submissionId);
         vm.prank(address(_verifier));
         vm.expectRevert(
             abi.encodeWithSelector(
                 VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.VerifiedComplete
             )
         );
-        _escrow.recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
+        _escrow.recordVerdict(
+            taskId, submissionId, requestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
+        );
+    }
+
+    function test_RecordVerdict_WrongRequestIdReverts() public {
+        (uint256 taskId, uint256 submissionId, bytes32 requestId) = _createFundAndSubmitTask();
+        bytes32 wrongRequestId = keccak256("wrong-request");
+
+        vm.prank(address(_verifier));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VigiliaEscrow.InvalidRequestId.selector, taskId, submissionId, requestId, wrongRequestId
+            )
+        );
+        _escrow.recordVerdict(
+            taskId, submissionId, wrongRequestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
+        );
     }
 
     function test_RecordVerdict_EmitsVerdictRecorded() public {
@@ -393,11 +422,11 @@ contract VigiliaEscrowTest is Test {
     }
 
     function test_RecordVerificationFailure_NonVerifierReverts() public {
-        (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
+        (uint256 taskId, uint256 submissionId, bytes32 requestId) = _createFundAndSubmitTask();
 
         vm.prank(_attacker);
         vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.Unauthorized.selector, _attacker));
-        _escrow.recordVerificationFailure(taskId, submissionId, _VERIFIER_NOTES_URI);
+        _escrow.recordVerificationFailure(taskId, submissionId, requestId, _VERIFIER_NOTES_URI);
     }
 
     function test_RecordVerificationFailure_StaleOldSubmissionReverts() public {
@@ -407,22 +436,37 @@ contract VigiliaEscrowTest is Test {
         vm.prank(_contractor);
         _escrow.submitWork(taskId, "ipfs://evidence-v2", keccak256("evidence-v2"));
 
+        bytes32 firstRequestId = _submissionRequestId(firstSubmissionId);
         vm.prank(address(_verifier));
         vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.InvalidSubmission.selector, taskId, firstSubmissionId));
-        _escrow.recordVerificationFailure(taskId, firstSubmissionId, _VERIFIER_NOTES_URI);
+        _escrow.recordVerificationFailure(taskId, firstSubmissionId, firstRequestId, _VERIFIER_NOTES_URI);
     }
 
     function test_RecordVerificationFailure_TwiceForSameSubmissionReverts() public {
         (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
         _recordVerificationFailure(taskId, submissionId);
 
+        bytes32 requestId = _submissionRequestId(submissionId);
         vm.prank(address(_verifier));
         vm.expectRevert(
             abi.encodeWithSelector(
                 VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.VerificationFailed
             )
         );
-        _escrow.recordVerificationFailure(taskId, submissionId, _VERIFIER_NOTES_URI);
+        _escrow.recordVerificationFailure(taskId, submissionId, requestId, _VERIFIER_NOTES_URI);
+    }
+
+    function test_RecordVerificationFailure_WrongRequestIdReverts() public {
+        (uint256 taskId, uint256 submissionId, bytes32 requestId) = _createFundAndSubmitTask();
+        bytes32 wrongRequestId = keccak256("wrong-request");
+
+        vm.prank(address(_verifier));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VigiliaEscrow.InvalidRequestId.selector, taskId, submissionId, requestId, wrongRequestId
+            )
+        );
+        _escrow.recordVerificationFailure(taskId, submissionId, wrongRequestId, _VERIFIER_NOTES_URI);
     }
 
     function test_ApproveTask_ClientApprovesCompleteTask() public {
@@ -1076,12 +1120,18 @@ contract VigiliaEscrowTest is Test {
     }
 
     function _recordVerdict(uint256 _taskId, uint256 _submissionId, VigiliaTypes.VerificationVerdict _verdict) private {
+        bytes32 requestId = _submissionRequestId(_submissionId);
         vm.prank(address(_verifier));
-        _escrow.recordVerdict(_taskId, _submissionId, _verdict, _VERIFIER_NOTES_URI);
+        _escrow.recordVerdict(_taskId, _submissionId, requestId, _verdict, _VERIFIER_NOTES_URI);
     }
 
     function _recordVerificationFailure(uint256 _taskId, uint256 _submissionId) private {
+        bytes32 requestId = _submissionRequestId(_submissionId);
         vm.prank(address(_verifier));
-        _escrow.recordVerificationFailure(_taskId, _submissionId, _VERIFIER_NOTES_URI);
+        _escrow.recordVerificationFailure(_taskId, _submissionId, requestId, _VERIFIER_NOTES_URI);
+    }
+
+    function _submissionRequestId(uint256 _submissionId) private view returns (bytes32 requestId) {
+        (,,,, requestId,,,) = _escrow.submissions(_submissionId);
     }
 }
