@@ -1,37 +1,52 @@
 name: CI
 
-permissions:
-  contents: read
-
 on:
   push:
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   FOUNDRY_PROFILE: ci
 
 jobs:
   check:
-    name: Foundry project
+    name: Format, build, test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout repository
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
           submodules: recursive
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
 
-      - name: Show Forge version
-        run: forge --version
+      - name: Show tool versions
+        run: |
+          forge --version
+          cast --version
+          anvil --version
 
-      - name: Run Forge fmt
+      - name: Clear Foundry cache
+        run: forge cache clean
+
+      - name: Check formatting
         run: forge fmt --check
 
-      - name: Run Forge build
+      - name: Build contracts
         run: forge build --sizes
 
-      - name: Run Forge tests
+      - name: Run tests
         run: forge test -vvv
