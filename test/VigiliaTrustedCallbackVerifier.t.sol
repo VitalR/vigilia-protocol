@@ -2,15 +2,16 @@
 pragma solidity 0.8.34;
 
 import { Test } from "@forge-std/Test.sol";
-import { VigiliaAgentVerifier } from "../src/VigiliaAgentVerifier.sol";
+import { VigiliaTrustedCallbackVerifier } from "../src/VigiliaTrustedCallbackVerifier.sol";
 import { VigiliaEscrow } from "../src/VigiliaEscrow.sol";
+import { VigiliaTypes } from "../src/types/VigiliaTypes.sol";
 
-contract VigiliaAgentVerifierTest is Test {
+contract VigiliaTrustedCallbackVerifierTest is Test {
     event EscrowBound(address indexed escrow);
-    event AgentVerificationRequested(
+    event TrustedVerificationRequested(
         bytes32 indexed requestId, uint256 indexed taskId, uint256 indexed submissionId, string evidenceURI
     );
-    event AgentVerificationCallback(
+    event TrustedVerificationCallback(
         bytes32 indexed requestId,
         uint256 indexed taskId,
         uint256 indexed submissionId,
@@ -18,7 +19,7 @@ contract VigiliaAgentVerifierTest is Test {
         string verifierNotesURI
     );
 
-    VigiliaAgentVerifier private _agentVerifier;
+    VigiliaTrustedCallbackVerifier private _agentVerifier;
     VigiliaEscrow private _escrow;
 
     address private _binder = address(0xB10D);
@@ -36,7 +37,7 @@ contract VigiliaAgentVerifierTest is Test {
     string private constant _VERIFIER_NOTES_URI = "ipfs://verifier-notes";
 
     function setUp() public {
-        _agentVerifier = new VigiliaAgentVerifier(_binder, _callbackSender);
+        _agentVerifier = new VigiliaTrustedCallbackVerifier(_binder, _callbackSender);
         _escrow = new VigiliaEscrow(address(_agentVerifier));
 
         vm.prank(_binder);
@@ -46,17 +47,17 @@ contract VigiliaAgentVerifierTest is Test {
     }
 
     function test_Constructor_ZeroBinderReverts() public {
-        vm.expectRevert(VigiliaAgentVerifier.InvalidAddress.selector);
-        new VigiliaAgentVerifier(address(0), _callbackSender);
+        vm.expectRevert(VigiliaTrustedCallbackVerifier.InvalidAddress.selector);
+        new VigiliaTrustedCallbackVerifier(address(0), _callbackSender);
     }
 
     function test_Constructor_ZeroCallbackSenderReverts() public {
-        vm.expectRevert(VigiliaAgentVerifier.InvalidAddress.selector);
-        new VigiliaAgentVerifier(_binder, address(0));
+        vm.expectRevert(VigiliaTrustedCallbackVerifier.InvalidAddress.selector);
+        new VigiliaTrustedCallbackVerifier(_binder, address(0));
     }
 
     function test_BindEscrow_BinderBindsEscrowOnce() public {
-        VigiliaAgentVerifier verifier = new VigiliaAgentVerifier(_binder, _callbackSender);
+        VigiliaTrustedCallbackVerifier verifier = new VigiliaTrustedCallbackVerifier(_binder, _callbackSender);
 
         vm.expectEmit(true, false, false, true);
         emit EscrowBound(address(_escrow));
@@ -67,15 +68,17 @@ contract VigiliaAgentVerifierTest is Test {
         assertEq(verifier.escrow(), address(_escrow));
 
         vm.prank(_binder);
-        vm.expectRevert(abi.encodeWithSelector(VigiliaAgentVerifier.EscrowAlreadyBound.selector, address(_escrow)));
+        vm.expectRevert(
+            abi.encodeWithSelector(VigiliaTrustedCallbackVerifier.EscrowAlreadyBound.selector, address(_escrow))
+        );
         verifier.bindEscrow(address(0xE5C));
     }
 
     function test_BindEscrow_UnauthorizedCallerReverts() public {
-        VigiliaAgentVerifier verifier = new VigiliaAgentVerifier(_binder, _callbackSender);
+        VigiliaTrustedCallbackVerifier verifier = new VigiliaTrustedCallbackVerifier(_binder, _callbackSender);
 
         vm.prank(_attacker);
-        vm.expectRevert(abi.encodeWithSelector(VigiliaAgentVerifier.Unauthorized.selector, _attacker));
+        vm.expectRevert(abi.encodeWithSelector(VigiliaTrustedCallbackVerifier.Unauthorized.selector, _attacker));
         verifier.bindEscrow(address(_escrow));
     }
 
@@ -85,7 +88,7 @@ contract VigiliaAgentVerifierTest is Test {
             keccak256(abi.encode(block.chainid, address(_agentVerifier), taskId, uint256(1), uint256(1)));
 
         vm.expectEmit(true, true, true, true);
-        emit AgentVerificationRequested(expectedRequestId, taskId, 1, _EVIDENCE_URI);
+        emit TrustedVerificationRequested(expectedRequestId, taskId, 1, _EVIDENCE_URI);
 
         vm.prank(_contractor);
         (uint256 submissionId, bytes32 requestId) = _escrow.submitWork(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
@@ -104,7 +107,7 @@ contract VigiliaAgentVerifierTest is Test {
 
     function test_RequestVerification_UnauthorizedCallerReverts() public {
         vm.prank(_attacker);
-        vm.expectRevert(abi.encodeWithSelector(VigiliaAgentVerifier.Unauthorized.selector, _attacker));
+        vm.expectRevert(abi.encodeWithSelector(VigiliaTrustedCallbackVerifier.Unauthorized.selector, _attacker));
         _agentVerifier.requestVerification(1, 1, _EVIDENCE_URI);
     }
 
@@ -112,25 +115,19 @@ contract VigiliaAgentVerifierTest is Test {
         (uint256 taskId, uint256 submissionId, bytes32 requestId) = _createFundAndSubmitTask();
 
         vm.expectEmit(true, true, true, true);
-        emit AgentVerificationCallback(
-            requestId,
-            taskId,
-            submissionId,
-            uint8(VigiliaAgentVerifier.VerificationVerdict.Complete),
-            _VERIFIER_NOTES_URI
+        emit TrustedVerificationCallback(
+            requestId, taskId, submissionId, uint8(VigiliaTypes.VerificationVerdict.Complete), _VERIFIER_NOTES_URI
         );
 
         vm.prank(_callbackSender);
-        _agentVerifier.handleAgentCallback(
-            requestId, VigiliaAgentVerifier.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
-        );
+        _agentVerifier.handleAgentCallback(requestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
-        (,,,,, VigiliaEscrow.VerificationVerdict verdict,, uint64 verifiedAt) = _escrow.submissions(submissionId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,, uint64 verifiedAt) = _escrow.submissions(submissionId);
         (,,,, bool fulfilled) = _agentVerifier.requests(requestId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
-        assertEq(uint256(verdict), uint256(VigiliaEscrow.VerificationVerdict.Complete));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Complete));
         assertEq(verifiedAt, block.timestamp);
         assertTrue(fulfilled);
     }
@@ -139,45 +136,37 @@ contract VigiliaAgentVerifierTest is Test {
         (,, bytes32 requestId) = _createFundAndSubmitTask();
 
         vm.prank(_attacker);
-        vm.expectRevert(abi.encodeWithSelector(VigiliaAgentVerifier.Unauthorized.selector, _attacker));
-        _agentVerifier.handleAgentCallback(
-            requestId, VigiliaAgentVerifier.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
-        );
+        vm.expectRevert(abi.encodeWithSelector(VigiliaTrustedCallbackVerifier.Unauthorized.selector, _attacker));
+        _agentVerifier.handleAgentCallback(requestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
     }
 
     function test_HandleAgentCallback_UnknownRequestReverts() public {
         bytes32 requestId = keccak256("missing");
 
         vm.prank(_callbackSender);
-        vm.expectRevert(abi.encodeWithSelector(VigiliaAgentVerifier.UnknownRequest.selector, requestId));
-        _agentVerifier.handleAgentCallback(
-            requestId, VigiliaAgentVerifier.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
-        );
+        vm.expectRevert(abi.encodeWithSelector(VigiliaTrustedCallbackVerifier.UnknownRequest.selector, requestId));
+        _agentVerifier.handleAgentCallback(requestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
     }
 
     function test_HandleAgentCallback_UnknownVerdictReverts() public {
         (,, bytes32 requestId) = _createFundAndSubmitTask();
 
         vm.prank(_callbackSender);
-        vm.expectRevert(VigiliaAgentVerifier.UnknownVerdict.selector);
-        _agentVerifier.handleAgentCallback(
-            requestId, VigiliaAgentVerifier.VerificationVerdict.Unknown, _VERIFIER_NOTES_URI
-        );
+        vm.expectRevert(VigiliaTrustedCallbackVerifier.UnknownVerdict.selector);
+        _agentVerifier.handleAgentCallback(requestId, VigiliaTypes.VerificationVerdict.Unknown, _VERIFIER_NOTES_URI);
     }
 
     function test_HandleAgentCallback_DuplicateCallbackReverts() public {
         (,, bytes32 requestId) = _createFundAndSubmitTask();
 
         vm.prank(_callbackSender);
-        _agentVerifier.handleAgentCallback(
-            requestId, VigiliaAgentVerifier.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
-        );
+        _agentVerifier.handleAgentCallback(requestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
 
         vm.prank(_callbackSender);
-        vm.expectRevert(abi.encodeWithSelector(VigiliaAgentVerifier.RequestAlreadyFulfilled.selector, requestId));
-        _agentVerifier.handleAgentCallback(
-            requestId, VigiliaAgentVerifier.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
+        vm.expectRevert(
+            abi.encodeWithSelector(VigiliaTrustedCallbackVerifier.RequestAlreadyFulfilled.selector, requestId)
         );
+        _agentVerifier.handleAgentCallback(requestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
     }
 
     function _createTask() private returns (uint256 taskId) {

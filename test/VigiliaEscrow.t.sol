@@ -4,6 +4,7 @@ pragma solidity 0.8.34;
 import { Test } from "@forge-std/Test.sol";
 import { VigiliaEscrow } from "../src/VigiliaEscrow.sol";
 import { MockVerifier } from "../src/mocks/MockVerifier.sol";
+import { VigiliaTypes } from "../src/types/VigiliaTypes.sol";
 
 contract VigiliaEscrowTest is Test {
     event TaskCreated(
@@ -168,7 +169,7 @@ contract VigiliaEscrowTest is Test {
             string memory evidenceURI,
             bytes32 evidenceHash,
             bytes32 storedRequestId,
-            VigiliaEscrow.VerificationVerdict verdict,
+            VigiliaTypes.VerificationVerdict verdict,
             uint64 submittedAt,
             uint64 verifiedAt
         ) = _escrow.submissions(submissionId);
@@ -183,7 +184,7 @@ contract VigiliaEscrowTest is Test {
         assertEq(evidenceURI, _EVIDENCE_URI);
         assertEq(evidenceHash, _EVIDENCE_HASH);
         assertEq(storedRequestId, requestId);
-        assertEq(uint256(verdict), uint256(VigiliaEscrow.VerificationVerdict.Unknown));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Unknown));
         assertEq(submittedAt, block.timestamp);
         assertEq(verifiedAt, 0);
         assertTrue(_verifier.requests(requestId));
@@ -265,38 +266,38 @@ contract VigiliaEscrowTest is Test {
     function test_RecordVerdict_VerifierMarksComplete() public {
         (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
 
-        _recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.Complete);
+        _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Complete);
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
-        (,,,,, VigiliaEscrow.VerificationVerdict verdict,, uint64 verifiedAt) = _escrow.submissions(submissionId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,, uint64 verifiedAt) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
-        assertEq(uint256(verdict), uint256(VigiliaEscrow.VerificationVerdict.Complete));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Complete));
         assertEq(verifiedAt, block.timestamp);
     }
 
     function test_RecordVerdict_VerifierMarksNeedsReview() public {
         (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
 
-        _recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.NeedsReview);
+        _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.NeedsReview);
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
-        (,,,,, VigiliaEscrow.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.NeedsReview));
-        assertEq(uint256(verdict), uint256(VigiliaEscrow.VerificationVerdict.NeedsReview));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.NeedsReview));
     }
 
     function test_RecordVerdict_VerifierMarksIncomplete() public {
         (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
 
-        _recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.Incomplete);
+        _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Incomplete);
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
-        (,,,,, VigiliaEscrow.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Incomplete));
-        assertEq(uint256(verdict), uint256(VigiliaEscrow.VerificationVerdict.Incomplete));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Incomplete));
     }
 
     function test_RecordVerdict_UnauthorizedVerifierCallerReverts() public {
@@ -304,7 +305,7 @@ contract VigiliaEscrowTest is Test {
 
         vm.prank(_attacker);
         vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.Unauthorized.selector, _attacker));
-        _escrow.recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
+        _escrow.recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
     }
 
     function test_RecordVerdict_UnknownVerdictReverts() public {
@@ -312,7 +313,7 @@ contract VigiliaEscrowTest is Test {
 
         vm.prank(address(_verifier));
         vm.expectRevert(VigiliaEscrow.UnknownVerdict.selector);
-        _escrow.recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.Unknown, _VERIFIER_NOTES_URI);
+        _escrow.recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Unknown, _VERIFIER_NOTES_URI);
     }
 
     function test_RecordVerdict_WrongSubmissionTaskReverts() public {
@@ -324,7 +325,7 @@ contract VigiliaEscrowTest is Test {
             abi.encodeWithSelector(VigiliaEscrow.InvalidSubmission.selector, firstTaskId, secondSubmissionId)
         );
         _escrow.recordVerdict(
-            firstTaskId, secondSubmissionId, VigiliaEscrow.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
+            firstTaskId, secondSubmissionId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
         );
 
         (,,,,,,, VigiliaEscrow.TaskState firstState,,,) = _escrow.tasks(firstTaskId);
@@ -335,21 +336,19 @@ contract VigiliaEscrowTest is Test {
 
     function test_RecordVerdict_StaleOldSubmissionAfterResubmissionReverts() public {
         (uint256 taskId, uint256 firstSubmissionId,) = _createFundAndSubmitTask();
-        _recordVerdict(taskId, firstSubmissionId, VigiliaEscrow.VerificationVerdict.Incomplete);
+        _recordVerdict(taskId, firstSubmissionId, VigiliaTypes.VerificationVerdict.Incomplete);
 
         vm.prank(_contractor);
         _escrow.submitWork(taskId, "ipfs://evidence-v2", keccak256("evidence-v2"));
 
         vm.prank(address(_verifier));
         vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.InvalidSubmission.selector, taskId, firstSubmissionId));
-        _escrow.recordVerdict(
-            taskId, firstSubmissionId, VigiliaEscrow.VerificationVerdict.Complete, _VERIFIER_NOTES_URI
-        );
+        _escrow.recordVerdict(taskId, firstSubmissionId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
     }
 
     function test_RecordVerdict_TwiceForSameSubmissionReverts() public {
         (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
-        _recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.Complete);
+        _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Complete);
 
         vm.prank(address(_verifier));
         vm.expectRevert(
@@ -357,7 +356,7 @@ contract VigiliaEscrowTest is Test {
                 VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.VerifiedComplete
             )
         );
-        _escrow.recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
+        _escrow.recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
     }
 
     function test_RecordVerdict_EmitsVerdictRecorded() public {
@@ -365,10 +364,10 @@ contract VigiliaEscrowTest is Test {
 
         vm.expectEmit(true, true, false, true);
         emit VerdictRecorded(
-            taskId, submissionId, uint8(VigiliaEscrow.VerificationVerdict.Complete), requestId, _VERIFIER_NOTES_URI
+            taskId, submissionId, uint8(VigiliaTypes.VerificationVerdict.Complete), requestId, _VERIFIER_NOTES_URI
         );
 
-        _recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.Complete);
+        _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Complete);
     }
 
     function test_ApproveTask_ClientApprovesCompleteTask() public {
@@ -407,7 +406,7 @@ contract VigiliaEscrowTest is Test {
 
     function test_ApproveTask_ForIncompleteReverts() public {
         (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
-        _recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.Incomplete);
+        _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Incomplete);
 
         vm.prank(_client);
         vm.expectRevert(
@@ -734,7 +733,7 @@ contract VigiliaEscrowTest is Test {
 
     function test_CancelTask_ClientCancelsIncompleteTaskAndReceivesRefund() public {
         (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
-        _recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.Incomplete);
+        _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Incomplete);
         uint256 clientBalanceBefore = _client.balance;
 
         vm.prank(_client);
@@ -833,7 +832,7 @@ contract VigiliaEscrowTest is Test {
 
     function test_ResubmitWork_AfterIncompleteVerdict() public {
         (uint256 taskId, uint256 firstSubmissionId,) = _createFundAndSubmitTask();
-        _recordVerdict(taskId, firstSubmissionId, VigiliaEscrow.VerificationVerdict.Incomplete);
+        _recordVerdict(taskId, firstSubmissionId, VigiliaTypes.VerificationVerdict.Incomplete);
 
         vm.prank(_contractor);
         (uint256 secondSubmissionId,) = _escrow.submitWork(taskId, "ipfs://evidence-v2", keccak256("evidence-v2"));
@@ -878,7 +877,7 @@ contract VigiliaEscrowTest is Test {
         returns (uint256 taskId, uint256 submissionId, bytes32 requestId)
     {
         (taskId, submissionId, requestId) = _createFundAndSubmitTask();
-        _recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.Complete);
+        _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Complete);
     }
 
     function _createFundSubmitAndNeedsReviewTask()
@@ -886,7 +885,7 @@ contract VigiliaEscrowTest is Test {
         returns (uint256 taskId, uint256 submissionId, bytes32 requestId)
     {
         (taskId, submissionId, requestId) = _createFundAndSubmitTask();
-        _recordVerdict(taskId, submissionId, VigiliaEscrow.VerificationVerdict.NeedsReview);
+        _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.NeedsReview);
     }
 
     function _createFundSubmitApproveTask() private returns (uint256 taskId, uint256 submissionId, bytes32 requestId) {
@@ -896,9 +895,7 @@ contract VigiliaEscrowTest is Test {
         _escrow.approveTask(taskId);
     }
 
-    function _recordVerdict(uint256 _taskId, uint256 _submissionId, VigiliaEscrow.VerificationVerdict _verdict)
-        private
-    {
+    function _recordVerdict(uint256 _taskId, uint256 _submissionId, VigiliaTypes.VerificationVerdict _verdict) private {
         vm.prank(address(_verifier));
         _escrow.recordVerdict(_taskId, _submissionId, _verdict, _VERIFIER_NOTES_URI);
     }

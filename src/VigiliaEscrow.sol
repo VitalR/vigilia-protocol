@@ -2,6 +2,7 @@
 pragma solidity 0.8.34;
 
 import { IVigiliaVerifier } from "./interfaces/IVigiliaVerifier.sol";
+import { VigiliaTypes } from "./types/VigiliaTypes.sol";
 
 /// @title VigiliaEscrow
 /// @notice Compact MVP escrow for agent-verified public work settlement.
@@ -59,7 +60,7 @@ contract VigiliaEscrow {
     event VerdictRecorded(
         uint256 indexed taskId,
         uint256 indexed submissionId,
-        VerificationVerdict verdict,
+        VigiliaTypes.VerificationVerdict verdict,
         bytes32 requestId,
         string verifierNotesURI
     );
@@ -173,16 +174,6 @@ contract VigiliaEscrow {
         Cancelled
     }
 
-    /// @notice Bounded verifier results accepted by the escrow.
-    /// @dev `Unknown` is never accepted as a recorded result; malformed or unsupported verifier output must fail
-    /// closed.
-    enum VerificationVerdict {
-        Unknown,
-        Complete,
-        NeedsReview,
-        Incomplete
-    }
-
     /// @notice Fixed-price task tracked by the MVP escrow.
     /// @param client Client account that created and funded the task.
     /// @param contractor Contractor account assigned to submit evidence and claim.
@@ -224,7 +215,7 @@ contract VigiliaEscrow {
         string evidenceURI;
         bytes32 evidenceHash;
         bytes32 requestId;
-        VerificationVerdict verdict;
+        VigiliaTypes.VerificationVerdict verdict;
         uint64 submittedAt;
         uint64 verifiedAt;
     }
@@ -310,6 +301,7 @@ contract VigiliaEscrow {
     /// @return requestId Verifier request identifier returned by the configured verifier.
     function submitWork(uint256 _taskId, string calldata _evidenceURI, bytes32 _evidenceHash)
         external
+        payable
         returns (uint256 submissionId, bytes32 requestId)
     {
         Task storage task = _existingTask(_taskId);
@@ -331,7 +323,7 @@ contract VigiliaEscrow {
         submission.evidenceHash = _evidenceHash;
         submission.submittedAt = uint64(block.timestamp);
 
-        requestId = verifier.requestVerification(_taskId, submissionId, _evidenceURI);
+        requestId = verifier.requestVerification{ value: msg.value }(_taskId, submissionId, _evidenceURI);
         if (requestId == bytes32(0)) revert ZeroRequestId();
         submission.requestId = requestId;
 
@@ -346,11 +338,11 @@ contract VigiliaEscrow {
     function recordVerdict(
         uint256 _taskId,
         uint256 _submissionId,
-        VerificationVerdict _verdict,
+        VigiliaTypes.VerificationVerdict _verdict,
         string calldata _verifierNotesURI
     ) external {
         if (msg.sender != address(verifier)) revert Unauthorized(msg.sender);
-        if (_verdict == VerificationVerdict.Unknown) revert UnknownVerdict();
+        if (_verdict == VigiliaTypes.VerificationVerdict.Unknown) revert UnknownVerdict();
 
         Task storage task = _existingTask(_taskId);
         _requireState(_taskId, task, TaskState.Submitted);
@@ -362,9 +354,9 @@ contract VigiliaEscrow {
         submission.verdict = _verdict;
         submission.verifiedAt = uint64(block.timestamp);
 
-        if (_verdict == VerificationVerdict.Complete) {
+        if (_verdict == VigiliaTypes.VerificationVerdict.Complete) {
             task.state = TaskState.VerifiedComplete;
-        } else if (_verdict == VerificationVerdict.NeedsReview) {
+        } else if (_verdict == VigiliaTypes.VerificationVerdict.NeedsReview) {
             task.state = TaskState.NeedsReview;
         } else {
             task.state = TaskState.Incomplete;

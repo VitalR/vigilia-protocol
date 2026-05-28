@@ -2,36 +2,16 @@
 pragma solidity 0.8.34;
 
 import { IVigiliaVerifier } from "./interfaces/IVigiliaVerifier.sol";
+import { IVigiliaEscrowVerdictReceiver } from "./interfaces/IVigiliaEscrowVerdictReceiver.sol";
+import { VigiliaTypes } from "./types/VigiliaTypes.sol";
 
-/// @notice Minimal escrow callback surface used by VigiliaAgentVerifier.
-interface IVigiliaEscrowVerdictReceiver {
-    enum VerificationVerdict {
-        Unknown,
-        Complete,
-        NeedsReview,
-        Incomplete
-    }
-
-    /// @notice Records a bounded verifier verdict for an escrow submission.
-    /// @param _taskId Task that was verified.
-    /// @param _submissionId Submission receiving the verdict.
-    /// @param _verdict Bounded verifier result.
-    /// @param _verifierNotesURI Public URI with verifier notes, missing fields, or receipts.
-    function recordVerdict(
-        uint256 _taskId,
-        uint256 _submissionId,
-        VerificationVerdict _verdict,
-        string calldata _verifierNotesURI
-    ) external;
-}
-
-/// @title VigiliaAgentVerifier
-/// @notice Task verifier adapter that bridges VigiliaEscrow to a trusted Somnia Agent callback sender.
+/// @title VigiliaTrustedCallbackVerifier
+/// @notice Task verifier adapter that bridges VigiliaEscrow to a trusted manual callback sender.
 /// @dev This is intentionally a thin adapter, not the final generated Somnia Agent gateway integration. The escrow
 /// calls `requestVerification`, the configured callback sender later calls `handleAgentCallback` with a bounded
 /// verdict, and this contract forwards the verdict to the escrow. It does not hold funds and cannot move escrowed
 /// value.
-contract VigiliaAgentVerifier is IVigiliaVerifier {
+contract VigiliaTrustedCallbackVerifier is IVigiliaVerifier {
     /// @notice Emitted when the verifier is permanently bound to an escrow contract.
     /// @param escrow Escrow contract allowed to request verification and receive forwarded verdicts.
     event EscrowBound(address indexed escrow);
@@ -41,7 +21,7 @@ contract VigiliaAgentVerifier is IVigiliaVerifier {
     /// @param taskId Task to verify.
     /// @param submissionId Submission to verify.
     /// @param evidenceURI Public evidence URI supplied by the contractor.
-    event AgentVerificationRequested(
+    event TrustedVerificationRequested(
         bytes32 indexed requestId, uint256 indexed taskId, uint256 indexed submissionId, string evidenceURI
     );
 
@@ -51,11 +31,11 @@ contract VigiliaAgentVerifier is IVigiliaVerifier {
     /// @param submissionId Verified submission.
     /// @param verdict Bounded verdict forwarded to escrow.
     /// @param verifierNotesURI Public URI with verifier notes, missing fields, or receipts.
-    event AgentVerificationCallback(
+    event TrustedVerificationCallback(
         bytes32 indexed requestId,
         uint256 indexed taskId,
         uint256 indexed submissionId,
-        VerificationVerdict verdict,
+        VigiliaTypes.VerificationVerdict verdict,
         string verifierNotesURI
     );
 
@@ -73,13 +53,7 @@ contract VigiliaAgentVerifier is IVigiliaVerifier {
     /// @param caller Unauthorized caller.
     error Unauthorized(address caller);
 
-    enum VerificationVerdict {
-        Unknown,
-        Complete,
-        NeedsReview,
-        Incomplete
-    }
-
+    /// @notice Stored metadata for a trusted callback verification request.
     struct VerificationRequest {
         uint256 taskId;
         uint256 submissionId;
@@ -92,7 +66,7 @@ contract VigiliaAgentVerifier is IVigiliaVerifier {
     /// @dev This is deployment-time configuration only. It has no authority over task settlement or verdicts.
     address public immutable escrowBinder;
 
-    /// @notice Trusted Somnia Agent platform/callback sender for bounded verification results.
+    /// @notice Trusted manual callback sender for bounded verification results.
     address public immutable callbackSender;
 
     /// @notice Escrow contract allowed to request verification and receive forwarded verdicts.
@@ -106,7 +80,7 @@ contract VigiliaAgentVerifier is IVigiliaVerifier {
 
     /// @notice Creates the adapter with deployment-time binder and trusted callback sender.
     /// @param _escrowBinder Account allowed to call `bindEscrow` once after escrow deployment.
-    /// @param _callbackSender Trusted Somnia Agent callback sender.
+    /// @param _callbackSender Trusted manual callback sender.
     constructor(address _escrowBinder, address _callbackSender) {
         if (_escrowBinder == address(0)) revert InvalidAddress();
         if (_callbackSender == address(0)) revert InvalidAddress();
@@ -133,6 +107,7 @@ contract VigiliaAgentVerifier is IVigiliaVerifier {
     /// @inheritdoc IVigiliaVerifier
     function requestVerification(uint256 _taskId, uint256 _submissionId, string calldata _evidenceURI)
         external
+        payable
         returns (bytes32 requestId)
     {
         if (msg.sender != escrow) revert Unauthorized(msg.sender);
@@ -148,18 +123,20 @@ contract VigiliaAgentVerifier is IVigiliaVerifier {
             fulfilled: false
         });
 
-        emit AgentVerificationRequested(requestId, _taskId, _submissionId, _evidenceURI);
+        emit TrustedVerificationRequested(requestId, _taskId, _submissionId, _evidenceURI);
     }
 
-    /// @notice Handles a trusted Somnia Agent callback and forwards the bounded verdict to escrow.
+    /// @notice Handles a trusted manual callback and forwards the bounded verdict to escrow.
     /// @param _requestId Request identifier returned by `requestVerification`.
     /// @param _verdict Bounded verdict. `Unknown` is rejected and fails closed.
     /// @param _verifierNotesURI Public URI with verifier notes, missing fields, or receipts.
-    function handleAgentCallback(bytes32 _requestId, VerificationVerdict _verdict, string calldata _verifierNotesURI)
-        external
-    {
+    function handleAgentCallback(
+        bytes32 _requestId,
+        VigiliaTypes.VerificationVerdict _verdict,
+        string calldata _verifierNotesURI
+    ) external {
         if (msg.sender != callbackSender) revert Unauthorized(msg.sender);
-        if (_verdict == VerificationVerdict.Unknown) revert UnknownVerdict();
+        if (_verdict == VigiliaTypes.VerificationVerdict.Unknown) revert UnknownVerdict();
 
         VerificationRequest storage request = requests[_requestId];
         if (!request.exists) revert UnknownRequest(_requestId);
@@ -167,12 +144,9 @@ contract VigiliaAgentVerifier is IVigiliaVerifier {
 
         request.fulfilled = true;
 
-        IVigiliaEscrowVerdictReceiver.VerificationVerdict escrowVerdict =
-            IVigiliaEscrowVerdictReceiver.VerificationVerdict(uint8(_verdict));
-
         IVigiliaEscrowVerdictReceiver(escrow)
-            .recordVerdict(request.taskId, request.submissionId, escrowVerdict, _verifierNotesURI);
+            .recordVerdict(request.taskId, request.submissionId, _verdict, _verifierNotesURI);
 
-        emit AgentVerificationCallback(_requestId, request.taskId, request.submissionId, _verdict, _verifierNotesURI);
+        emit TrustedVerificationCallback(_requestId, request.taskId, request.submissionId, _verdict, _verifierNotesURI);
     }
 }

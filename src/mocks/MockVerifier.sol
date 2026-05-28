@@ -36,6 +36,7 @@ contract MockVerifier is IVigiliaVerifier {
     /// @inheritdoc IVigiliaVerifier
     function requestVerification(uint256 _taskId, uint256 _submissionId, string calldata _evidenceURI)
         external
+        payable
         returns (bytes32 requestId)
     {
         nextRequestNonce++;
