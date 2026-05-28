@@ -39,6 +39,9 @@ contract MockSomniaAgentRequester is ISomniaAgentRequester {
     /// @notice Last native-token value supplied to `createRequest`.
     uint256 public lastValue;
 
+    /// @notice When true, `createRequest` returns zero to exercise fail-closed verifier handling.
+    bool public forceZeroRequestId;
+
     /// @notice Configures mock platform deposits.
     /// @param _requestDeposit Base platform reserve.
     /// @param _advancedRequestDeposit Advanced platform reserve.
@@ -60,7 +63,15 @@ contract MockSomniaAgentRequester is ISomniaAgentRequester {
         lastPayload = _payload;
         lastValue = msg.value;
 
+        if (forceZeroRequestId) return 0;
+
         requestId = nextRequestId++;
+    }
+
+    /// @notice Configures whether `createRequest` should return the invalid zero request identifier.
+    /// @param _forceZeroRequestId True to force zero request identifiers.
+    function setForceZeroRequestId(bool _forceZeroRequestId) external {
+        forceZeroRequestId = _forceZeroRequestId;
     }
 
     /// @inheritdoc ISomniaAgentRequester

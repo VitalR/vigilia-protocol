@@ -85,6 +85,78 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         vm.deal(_contractor, 100 ether);
     }
 
+    function test_Constructor_ZeroPlatformReverts() public {
+        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAddress.selector);
+        new VigiliaSomniaAgentVerifier(
+            address(0), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
+        );
+    }
+
+    function test_Constructor_ZeroBinderReverts() public {
+        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAddress.selector);
+        new VigiliaSomniaAgentVerifier(
+            address(_platform), address(0), _AGENT_ID, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
+        );
+    }
+
+    function test_Constructor_ZeroAgentIdReverts() public {
+        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAmount.selector);
+        new VigiliaSomniaAgentVerifier(
+            address(_platform), _binder, 0, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
+        );
+    }
+
+    function test_Constructor_ZeroSubcommitteeSizeReverts() public {
+        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAmount.selector);
+        new VigiliaSomniaAgentVerifier(
+            address(_platform), _binder, _AGENT_ID, 0, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
+        );
+    }
+
+    function test_Constructor_ZeroPricePerValidatorReverts() public {
+        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAmount.selector);
+        new VigiliaSomniaAgentVerifier(address(_platform), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, 0, _VERDICT_SELECTOR);
+    }
+
+    function test_Constructor_EmptyVerdictSelectorReverts() public {
+        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAmount.selector);
+        new VigiliaSomniaAgentVerifier(
+            address(_platform), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, ""
+        );
+    }
+
+    function test_BindEscrow_UnauthorizedCallerReverts() public {
+        VigiliaSomniaAgentVerifier verifier = new VigiliaSomniaAgentVerifier(
+            address(_platform), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
+        );
+
+        vm.prank(_attacker);
+        vm.expectRevert(abi.encodeWithSelector(VigiliaSomniaAgentVerifier.Unauthorized.selector, _attacker));
+        verifier.bindEscrow(address(_escrow));
+    }
+
+    function test_BindEscrow_ZeroEscrowReverts() public {
+        VigiliaSomniaAgentVerifier verifier = new VigiliaSomniaAgentVerifier(
+            address(_platform), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
+        );
+
+        vm.prank(_binder);
+        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAddress.selector);
+        verifier.bindEscrow(address(0));
+    }
+
+    function test_BindEscrow_AlreadyBoundReverts() public {
+        vm.prank(_binder);
+        vm.expectRevert(
+            abi.encodeWithSelector(VigiliaSomniaAgentVerifier.EscrowAlreadyBound.selector, address(_escrow))
+        );
+        _verifier.bindEscrow(address(0xE5C));
+    }
+
+    function test_MinimumRequestDeposit_ReturnsPlatformReservePlusValidatorBudget() public view {
+        assertEq(_verifier.minimumRequestDeposit(), _requiredDeposit());
+    }
+
     function test_SubmitWork_ForwardsVerificationDepositToPlatform() public {
         uint256 taskId = _createAndFundTask();
         uint256 deposit = _requiredDeposit();
@@ -127,6 +199,36 @@ contract VigiliaSomniaAgentVerifierTest is Test {
             )
         );
         _escrow.submitWork{ value: requiredDeposit + 1 }(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
+    }
+
+    function test_RequestVerification_UnauthorizedCallerReverts() public {
+        vm.deal(_attacker, _requiredDeposit());
+
+        vm.prank(_attacker);
+        vm.expectRevert(abi.encodeWithSelector(VigiliaSomniaAgentVerifier.Unauthorized.selector, _attacker));
+        _verifier.requestVerification{ value: _requiredDeposit() }(1, 1, _attacker, _EVIDENCE_URI);
+    }
+
+    function test_RequestVerification_ZeroPayerReverts() public {
+        vm.deal(address(_escrow), _requiredDeposit());
+
+        vm.prank(address(_escrow));
+        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAddress.selector);
+        _verifier.requestVerification{ value: _requiredDeposit() }(1, 1, address(0), _EVIDENCE_URI);
+    }
+
+    function test_SubmitWork_ZeroPlatformRequestIdRevertsAndRollsBack() public {
+        uint256 taskId = _createAndFundTask();
+        _platform.setForceZeroRequestId(true);
+
+        vm.prank(_contractor);
+        vm.expectRevert(abi.encodeWithSelector(VigiliaSomniaAgentVerifier.UnknownRequest.selector, 0));
+        _escrow.submitWork{ value: _requiredDeposit() }(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Funded));
+        assertEq(_escrow.nextSubmissionId(), 1);
+        assertEq(address(_escrow).balance, _TASK_AMOUNT);
     }
 
     function test_SubmitWork_CreatesExpectedSomniaRequest() public {
@@ -183,6 +285,99 @@ contract VigiliaSomniaAgentVerifierTest is Test {
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Incomplete));
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Incomplete));
+    }
+
+    function test_HandleResponse_SuccessAcceptsUppercaseComplete() public {
+        (uint256 taskId, uint256 submissionId,) = _submitWork();
+
+        _callbackSuccess("COMPLETE");
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Complete));
+    }
+
+    function test_HandleResponse_SuccessAcceptsUppercaseNeedsReview() public {
+        (uint256 taskId, uint256 submissionId,) = _submitWork();
+
+        _callbackSuccess("NEEDS_REVIEW");
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.NeedsReview));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.NeedsReview));
+    }
+
+    function test_HandleResponse_SuccessAcceptsUppercaseIncomplete() public {
+        (uint256 taskId, uint256 submissionId,) = _submitWork();
+
+        _callbackSuccess("INCOMPLETE");
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Incomplete));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Incomplete));
+    }
+
+    function test_HandleResponse_UsesFirstSuccessfulNonEmptyValidatorResult() public {
+        (uint256 taskId, uint256 submissionId,) = _submitWork();
+        ISomniaAgentRequester.Response[] memory responses = new ISomniaAgentRequester.Response[](3);
+        responses[0] = ISomniaAgentRequester.Response({
+            validator: address(0xAA),
+            result: abi.encode("Incomplete"),
+            status: ISomniaAgentRequester.ResponseStatus.Failed,
+            receipt: 0,
+            timestamp: block.timestamp,
+            executionCost: 0
+        });
+        responses[1] = ISomniaAgentRequester.Response({
+            validator: address(0xBB),
+            result: "",
+            status: ISomniaAgentRequester.ResponseStatus.Success,
+            receipt: 0,
+            timestamp: block.timestamp,
+            executionCost: 0
+        });
+        responses[2] = ISomniaAgentRequester.Response({
+            validator: address(0xCC),
+            result: abi.encode("Complete"),
+            status: ISomniaAgentRequester.ResponseStatus.Success,
+            receipt: 0,
+            timestamp: block.timestamp,
+            executionCost: 0
+        });
+        ISomniaAgentRequester.Request memory details;
+
+        _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Complete));
+    }
+
+    function test_HandleResponse_NoSuccessfulResultFailsClosed() public {
+        (uint256 taskId,,) = _submitWork();
+        ISomniaAgentRequester.Response[] memory responses = new ISomniaAgentRequester.Response[](1);
+        responses[0] = ISomniaAgentRequester.Response({
+            validator: address(0xAA),
+            result: abi.encode("Complete"),
+            status: ISomniaAgentRequester.ResponseStatus.Failed,
+            receipt: 0,
+            timestamp: block.timestamp,
+            executionCost: 0
+        });
+        ISomniaAgentRequester.Request memory details;
+
+        _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
     }
 
     function test_HandleResponse_UnknownVerdictFailsClosed() public {
@@ -244,6 +439,30 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
     }
 
+    function test_HandleResponse_PendingStatusRevertsAndDoesNotFulfillRequest() public {
+        (uint256 taskId,,) = _submitWork();
+        ISomniaAgentRequester.Response[] memory responses = new ISomniaAgentRequester.Response[](0);
+        ISomniaAgentRequester.Request memory details;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VigiliaSomniaAgentVerifier.UnsupportedResponseStatus.selector,
+                ISomniaAgentRequester.ResponseStatus.Pending
+            )
+        );
+        _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Pending, details);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, bool fulfilled) = _verifier.requests(1);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
+        assertFalse(fulfilled);
+    }
+
+    function test_DecodeAgentString_DirectCallerReverts() public {
+        vm.expectRevert(VigiliaSomniaAgentVerifier.DecodeOnlySelf.selector);
+        _verifier.decodeAgentString(abi.encode("Complete"));
+    }
+
     function test_HandleResponse_FailedStatusDoesNotMarkComplete() public {
         (uint256 taskId,,) = _submitWork();
         ISomniaAgentRequester.Response[] memory responses = new ISomniaAgentRequester.Response[](0);
@@ -292,6 +511,28 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         emit EscrowForwardingFailed(1, taskId, 1, returnData);
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Failed, details);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, bool fulfilled) = _verifier.requests(1);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Disputed));
+        assertTrue(fulfilled);
+    }
+
+    function test_HandleResponse_WhenEscrowRejectsVerdictEmitsForwardingFailure() public {
+        (uint256 taskId,,) = _submitWork();
+        ISomniaAgentRequester.Response[] memory responses = _responses("Complete");
+        ISomniaAgentRequester.Request memory details;
+
+        vm.prank(_client);
+        _escrow.raiseDispute(taskId, "ipfs://dispute-before-callback");
+
+        bytes memory returnData =
+            abi.encodeWithSelector(VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.Disputed);
+
+        vm.expectEmit(true, true, true, true, address(_verifier));
+        emit EscrowForwardingFailed(1, taskId, 1, returnData);
+
+        _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         (,,,,, bool fulfilled) = _verifier.requests(1);
@@ -354,6 +595,58 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Unknown));
     }
 
+    function test_HandleResponse_StaleUnfulfilledCallbackCreditsRebateWithoutChangingTask() public {
+        (uint256 taskId, uint256 submissionId,) = _submitWork();
+        _forceEscrowVerificationFailed(taskId, submissionId, bytes32(uint256(1)));
+
+        vm.prank(_contractor);
+        _escrow.retryVerification{ value: _requiredDeposit() }(taskId);
+
+        uint256 rebate = 0.008 ether;
+        ISomniaAgentRequester.Response[] memory responses = _responses("Complete");
+        ISomniaAgentRequester.Request memory details = _details(rebate);
+        vm.deal(address(_platform), rebate);
+
+        vm.expectEmit(true, true, false, true, address(_verifier));
+        emit VerificationRebateCredited(_contractor, 1, rebate);
+        vm.expectEmit(true, true, true, true, address(_verifier));
+        emit StaleSomniaCallbackIgnored(1, 2, taskId, submissionId);
+
+        _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+        (,,,,, bool oldFulfilled) = _verifier.requests(1);
+
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Unknown));
+        assertTrue(oldFulfilled);
+        assertEq(_verifier.pendingVerificationRebates(_contractor), rebate);
+    }
+
+    function test_HandleResponse_StaleAlreadyFulfilledCallbackDoesNotDoubleCreditRebate() public {
+        (uint256 taskId, uint256 submissionId,) = _submitWork();
+        ISomniaAgentRequester.Response[] memory responses = new ISomniaAgentRequester.Response[](0);
+        ISomniaAgentRequester.Request memory details;
+
+        _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Failed, details);
+
+        vm.prank(_contractor);
+        _escrow.retryVerification{ value: _requiredDeposit() }(taskId);
+
+        uint256 rebate = 0.008 ether;
+        details = _details(rebate);
+        vm.deal(address(_platform), rebate);
+
+        vm.expectEmit(true, true, true, true, address(_verifier));
+        emit StaleSomniaCallbackIgnored(1, 2, taskId, submissionId);
+
+        _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Failed, details);
+
+        assertEq(_verifier.pendingVerificationRebates(_contractor), 0);
+        assertEq(_verifier.totalPendingVerificationRebates(), 0);
+    }
+
     function test_RequestVerification_StoresPayer() public {
         _submitWork();
 
@@ -401,6 +694,14 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         assertEq(_verifier.pendingVerificationRebates(_contractor), 0);
         assertEq(_verifier.totalPendingVerificationRebates(), 0);
         assertEq(_contractor.balance, contractorBalanceBefore + rebate);
+    }
+
+    function test_WithdrawVerificationRebate_NoPendingCreditReverts() public {
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(VigiliaSomniaAgentVerifier.NoPendingVerificationRebate.selector, _contractor)
+        );
+        _verifier.withdrawVerificationRebate();
     }
 
     function test_Receive_AcceptsPlatformRebate() public {
@@ -488,8 +789,12 @@ contract VigiliaSomniaAgentVerifierTest is Test {
 
     function _expectedVerdict(string memory _result) private pure returns (VigiliaTypes.VerificationVerdict verdict) {
         bytes32 resultHash = keccak256(bytes(_result));
-        if (resultHash == keccak256("Complete")) return VigiliaTypes.VerificationVerdict.Complete;
-        if (resultHash == keccak256("NeedsReview")) return VigiliaTypes.VerificationVerdict.NeedsReview;
+        if (resultHash == keccak256("Complete") || resultHash == keccak256("COMPLETE")) {
+            return VigiliaTypes.VerificationVerdict.Complete;
+        }
+        if (resultHash == keccak256("NeedsReview") || resultHash == keccak256("NEEDS_REVIEW")) {
+            return VigiliaTypes.VerificationVerdict.NeedsReview;
+        }
         return VigiliaTypes.VerificationVerdict.Incomplete;
     }
 }
