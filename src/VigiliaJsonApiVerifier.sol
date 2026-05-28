@@ -7,12 +7,12 @@ import { IVigiliaEscrowVerdictReceiver } from "./interfaces/IVigiliaEscrowVerdic
 import { IVigiliaVerifier } from "./interfaces/IVigiliaVerifier.sol";
 import { VigiliaTypes } from "./types/VigiliaTypes.sol";
 
-/// @title VigiliaSomniaAgentVerifier
+/// @title VigiliaJsonApiVerifier
 /// @notice Real Somnia Agent verifier adapter for Vigilia escrow submissions.
 /// @dev Uses the Somnia JSON API Request base agent. Contractor-supplied verification deposits are forwarded to the
 /// Somnia Agent platform through `createRequest`; task escrow funds remain in `VigiliaEscrow`. The adapter only
 /// forwards bounded verdicts and has no authority to move escrowed funds.
-contract VigiliaSomniaAgentVerifier is IVigiliaVerifier {
+contract VigiliaJsonApiVerifier is IVigiliaVerifier {
     /// @notice Stored metadata for a Somnia platform request.
     /// @param taskId Vigilia task being verified.
     /// @param submissionId Vigilia submission being verified.

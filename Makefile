@@ -5,9 +5,10 @@ SHELL := /bin/bash
 
 DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312.json
 DEPLOY_SCRIPT ?= script/DeployVigiliaSystem.s.sol:DeployVigiliaSystem
+GAS_ESTIMATE_MULTIPLIER ?= 2000
 
 .PHONY: help fmt build test check env-check account balance platform-code platform-deposit platform-check \
-	deploy-somnia deploy-somnia-dry-run show-deployment verify-somnia-escrow verify-somnia-verifier \
+	deploy-somnia deploy-somnia-dry-run show-deployment verify-somnia-escrow verify-somnia-json-verifier verify-somnia-verifier \
 	evidence-url required-agent-deposit require-env
 
 help:
@@ -32,7 +33,8 @@ help:
 	@echo "  make show-deployment             Print deployment artifact"
 	@echo ""
 	@echo "Verification:"
-	@echo "  make verify-somnia-verifier      Verify VigiliaSomniaAgentVerifier on Blockscout"
+	@echo "  make verify-somnia-json-verifier Verify VigiliaJsonApiVerifier on Blockscout"
+	@echo "  make verify-somnia-verifier      Alias for verify-somnia-json-verifier"
 	@echo "  make verify-somnia-escrow        Verify VigiliaEscrow on Blockscout"
 	@echo ""
 	@echo "Demo helpers:"
@@ -67,6 +69,18 @@ env-check:
 			echo "OK $$var"; \
 		fi; \
 	done; \
+	if [[ "$$SOMNIA_AGENT_TYPE" != "json-api-request" ]]; then \
+		echo "INVALID SOMNIA_AGENT_TYPE: expected json-api-request"; \
+		missing=1; \
+	else \
+		echo "OK SOMNIA_AGENT_TYPE"; \
+	fi; \
+	if [[ -n "$$SOMNIA_JSON_API_AGENT_ID" && "$$SOMNIA_AGENT_ID" != "$$SOMNIA_JSON_API_AGENT_ID" ]]; then \
+		echo "INVALID SOMNIA_AGENT_ID: must equal SOMNIA_JSON_API_AGENT_ID for vigilia-json-api-smoke"; \
+		missing=1; \
+	else \
+		echo "OK SOMNIA_AGENT_ID matches JSON API smoke config"; \
+	fi; \
 	exit $$missing
 
 require-env:
@@ -100,11 +114,11 @@ platform-check: platform-code platform-deposit
 
 deploy-somnia-dry-run:
 	@$(MAKE) --no-print-directory env-check
-	WRITE_DEPLOYMENT_ARTIFACT=false forge script $(DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" -vvvv
+	WRITE_DEPLOYMENT_ARTIFACT=false forge script $(DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-estimate-multiplier $(GAS_ESTIMATE_MULTIPLIER) -vvvv
 
 deploy-somnia:
 	@$(MAKE) --no-print-directory env-check
-	forge script $(DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --broadcast -vvvv
+	forge script $(DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-estimate-multiplier $(GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
 
 show-deployment:
 	@if [[ -f "$(DEPLOYMENT_ARTIFACT)" ]]; then \
@@ -114,15 +128,17 @@ show-deployment:
 		exit 1; \
 	fi
 
-verify-somnia-verifier:
-	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_CHAIN_ID SOMNIA_BLOCKSCOUT_API SOMNIA_AGENT_PLATFORM SOMNIA_AGENT_ID AGENT_SUBCOMMITTEE_SIZE AGENT_PRICE_PER_VALIDATOR SOMNIA_VERDICT_SELECTOR VIGILIA_SOMNIA_AGENT_VERIFIER"
+verify-somnia-json-verifier:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_CHAIN_ID SOMNIA_BLOCKSCOUT_API SOMNIA_AGENT_PLATFORM SOMNIA_AGENT_ID AGENT_SUBCOMMITTEE_SIZE AGENT_PRICE_PER_VALIDATOR SOMNIA_VERDICT_SELECTOR VIGILIA_JSON_API_VERIFIER"
 	@DEPLOYER=$${DEPLOYER_ADDRESS:-$$(cast wallet address --private-key "$$DEPLOYER_PRIVATE_KEY")}; \
 	ARGS=$$(cast abi-encode "constructor(address,address,uint256,uint256,uint256,string)" "$$SOMNIA_AGENT_PLATFORM" "$$DEPLOYER" "$$SOMNIA_AGENT_ID" "$$AGENT_SUBCOMMITTEE_SIZE" "$$AGENT_PRICE_PER_VALIDATOR" "$$SOMNIA_VERDICT_SELECTOR"); \
-	forge verify-contract "$$VIGILIA_SOMNIA_AGENT_VERIFIER" src/VigiliaSomniaAgentVerifier.sol:VigiliaSomniaAgentVerifier --chain-id "$$SOMNIA_CHAIN_ID" --verifier blockscout --verifier-url "$$SOMNIA_BLOCKSCOUT_API" --constructor-args "$$ARGS"
+	forge verify-contract "$$VIGILIA_JSON_API_VERIFIER" src/VigiliaJsonApiVerifier.sol:VigiliaJsonApiVerifier --chain-id "$$SOMNIA_CHAIN_ID" --verifier blockscout --verifier-url "$$SOMNIA_BLOCKSCOUT_API" --constructor-args "$$ARGS"
+
+verify-somnia-verifier: verify-somnia-json-verifier
 
 verify-somnia-escrow:
-	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_CHAIN_ID SOMNIA_BLOCKSCOUT_API VIGILIA_ESCROW VIGILIA_SOMNIA_AGENT_VERIFIER"
-	@ARGS=$$(cast abi-encode "constructor(address)" "$$VIGILIA_SOMNIA_AGENT_VERIFIER"); \
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_CHAIN_ID SOMNIA_BLOCKSCOUT_API VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER"
+	@ARGS=$$(cast abi-encode "constructor(address)" "$$VIGILIA_JSON_API_VERIFIER"); \
 	forge verify-contract "$$VIGILIA_ESCROW" src/VigiliaEscrow.sol:VigiliaEscrow --chain-id "$$SOMNIA_CHAIN_ID" --verifier blockscout --verifier-url "$$SOMNIA_BLOCKSCOUT_API" --constructor-args "$$ARGS"
 
 evidence-url:

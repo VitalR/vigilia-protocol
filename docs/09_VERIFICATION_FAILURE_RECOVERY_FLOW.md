@@ -535,7 +535,7 @@ or a future mutual cancellation feature.
 
 ## Somnia Verifier Behavior
 
-For `VigiliaSomniaAgentVerifier`:
+For `VigiliaJsonApiVerifier`:
 
 | Somnia callback result | Escrow action |
 |---|---|
@@ -625,7 +625,7 @@ For the next pass, implement in this order:
 5. Update resubmission states.
 6. Update dispute states.
 7. Ensure direct claim/refund from `VerificationFailed` is blocked.
-8. Update `VigiliaSomniaAgentVerifier` to call `recordVerificationFailure` for failed/timed-out/malformed outcomes.
+8. Update `VigiliaJsonApiVerifier` to call `recordVerificationFailure` for failed/timed-out/malformed outcomes.
 9. Add tests.
 10. Run:
    ```bash

@@ -5,11 +5,11 @@ import { Test } from "@forge-std/Test.sol";
 import { IJsonApiAgent } from "../src/interfaces/IJsonApiAgent.sol";
 import { ISomniaAgentRequester } from "../src/interfaces/ISomniaAgentRequester.sol";
 import { VigiliaEscrow } from "../src/VigiliaEscrow.sol";
-import { VigiliaSomniaAgentVerifier } from "../src/VigiliaSomniaAgentVerifier.sol";
+import { VigiliaJsonApiVerifier } from "../src/VigiliaJsonApiVerifier.sol";
 import { VigiliaTypes } from "../src/types/VigiliaTypes.sol";
 import { MockSomniaAgentRequester } from "./mocks/MockSomniaAgentRequester.sol";
 
-contract VigiliaSomniaAgentVerifierTest is Test {
+contract VigiliaJsonApiVerifierTest is Test {
     event SomniaVerificationRequested(
         bytes32 indexed vigiliaRequestId,
         uint256 indexed platformRequestId,
@@ -62,7 +62,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
     bytes32 private constant _EVIDENCE_HASH = keccak256("evidence");
 
     MockSomniaAgentRequester private _platform;
-    VigiliaSomniaAgentVerifier private _verifier;
+    VigiliaJsonApiVerifier private _verifier;
     VigiliaEscrow private _escrow;
 
     address private _binder = address(0xB10D);
@@ -73,7 +73,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
 
     function setUp() public {
         _platform = new MockSomniaAgentRequester(_PLATFORM_DEPOSIT, _PLATFORM_DEPOSIT);
-        _verifier = new VigiliaSomniaAgentVerifier(
+        _verifier = new VigiliaJsonApiVerifier(
             address(_platform), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
         );
         _escrow = new VigiliaEscrow(address(_verifier));
@@ -86,70 +86,64 @@ contract VigiliaSomniaAgentVerifierTest is Test {
     }
 
     function test_Constructor_ZeroPlatformReverts() public {
-        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAddress.selector);
-        new VigiliaSomniaAgentVerifier(
+        vm.expectRevert(VigiliaJsonApiVerifier.InvalidAddress.selector);
+        new VigiliaJsonApiVerifier(
             address(0), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
         );
     }
 
     function test_Constructor_ZeroBinderReverts() public {
-        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAddress.selector);
-        new VigiliaSomniaAgentVerifier(
+        vm.expectRevert(VigiliaJsonApiVerifier.InvalidAddress.selector);
+        new VigiliaJsonApiVerifier(
             address(_platform), address(0), _AGENT_ID, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
         );
     }
 
     function test_Constructor_ZeroAgentIdReverts() public {
-        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAmount.selector);
-        new VigiliaSomniaAgentVerifier(
+        vm.expectRevert(VigiliaJsonApiVerifier.InvalidAmount.selector);
+        new VigiliaJsonApiVerifier(
             address(_platform), _binder, 0, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
         );
     }
 
     function test_Constructor_ZeroSubcommitteeSizeReverts() public {
-        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAmount.selector);
-        new VigiliaSomniaAgentVerifier(
-            address(_platform), _binder, _AGENT_ID, 0, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
-        );
+        vm.expectRevert(VigiliaJsonApiVerifier.InvalidAmount.selector);
+        new VigiliaJsonApiVerifier(address(_platform), _binder, _AGENT_ID, 0, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR);
     }
 
     function test_Constructor_ZeroPricePerValidatorReverts() public {
-        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAmount.selector);
-        new VigiliaSomniaAgentVerifier(address(_platform), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, 0, _VERDICT_SELECTOR);
+        vm.expectRevert(VigiliaJsonApiVerifier.InvalidAmount.selector);
+        new VigiliaJsonApiVerifier(address(_platform), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, 0, _VERDICT_SELECTOR);
     }
 
     function test_Constructor_EmptyVerdictSelectorReverts() public {
-        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAmount.selector);
-        new VigiliaSomniaAgentVerifier(
-            address(_platform), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, ""
-        );
+        vm.expectRevert(VigiliaJsonApiVerifier.InvalidAmount.selector);
+        new VigiliaJsonApiVerifier(address(_platform), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, "");
     }
 
     function test_BindEscrow_UnauthorizedCallerReverts() public {
-        VigiliaSomniaAgentVerifier verifier = new VigiliaSomniaAgentVerifier(
+        VigiliaJsonApiVerifier verifier = new VigiliaJsonApiVerifier(
             address(_platform), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
         );
 
         vm.prank(_attacker);
-        vm.expectRevert(abi.encodeWithSelector(VigiliaSomniaAgentVerifier.Unauthorized.selector, _attacker));
+        vm.expectRevert(abi.encodeWithSelector(VigiliaJsonApiVerifier.Unauthorized.selector, _attacker));
         verifier.bindEscrow(address(_escrow));
     }
 
     function test_BindEscrow_ZeroEscrowReverts() public {
-        VigiliaSomniaAgentVerifier verifier = new VigiliaSomniaAgentVerifier(
+        VigiliaJsonApiVerifier verifier = new VigiliaJsonApiVerifier(
             address(_platform), _binder, _AGENT_ID, _SUBCOMMITTEE_SIZE, _PRICE_PER_VALIDATOR, _VERDICT_SELECTOR
         );
 
         vm.prank(_binder);
-        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAddress.selector);
+        vm.expectRevert(VigiliaJsonApiVerifier.InvalidAddress.selector);
         verifier.bindEscrow(address(0));
     }
 
     function test_BindEscrow_AlreadyBoundReverts() public {
         vm.prank(_binder);
-        vm.expectRevert(
-            abi.encodeWithSelector(VigiliaSomniaAgentVerifier.EscrowAlreadyBound.selector, address(_escrow))
-        );
+        vm.expectRevert(abi.encodeWithSelector(VigiliaJsonApiVerifier.EscrowAlreadyBound.selector, address(_escrow)));
         _verifier.bindEscrow(address(0xE5C));
     }
 
@@ -179,7 +173,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         vm.prank(_contractor);
         vm.expectRevert(
             abi.encodeWithSelector(
-                VigiliaSomniaAgentVerifier.InvalidVerificationDeposit.selector, requiredDeposit, requiredDeposit - 1
+                VigiliaJsonApiVerifier.InvalidVerificationDeposit.selector, requiredDeposit, requiredDeposit - 1
             )
         );
         _escrow.submitWork{ value: requiredDeposit - 1 }(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
@@ -195,7 +189,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         vm.prank(_contractor);
         vm.expectRevert(
             abi.encodeWithSelector(
-                VigiliaSomniaAgentVerifier.InvalidVerificationDeposit.selector, requiredDeposit, requiredDeposit + 1
+                VigiliaJsonApiVerifier.InvalidVerificationDeposit.selector, requiredDeposit, requiredDeposit + 1
             )
         );
         _escrow.submitWork{ value: requiredDeposit + 1 }(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
@@ -205,7 +199,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         vm.deal(_attacker, _requiredDeposit());
 
         vm.prank(_attacker);
-        vm.expectRevert(abi.encodeWithSelector(VigiliaSomniaAgentVerifier.Unauthorized.selector, _attacker));
+        vm.expectRevert(abi.encodeWithSelector(VigiliaJsonApiVerifier.Unauthorized.selector, _attacker));
         _verifier.requestVerification{ value: _requiredDeposit() }(1, 1, _attacker, _EVIDENCE_URI);
     }
 
@@ -213,7 +207,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         vm.deal(address(_escrow), _requiredDeposit());
 
         vm.prank(address(_escrow));
-        vm.expectRevert(VigiliaSomniaAgentVerifier.InvalidAddress.selector);
+        vm.expectRevert(VigiliaJsonApiVerifier.InvalidAddress.selector);
         _verifier.requestVerification{ value: _requiredDeposit() }(1, 1, address(0), _EVIDENCE_URI);
     }
 
@@ -222,7 +216,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         _platform.setForceZeroRequestId(true);
 
         vm.prank(_contractor);
-        vm.expectRevert(abi.encodeWithSelector(VigiliaSomniaAgentVerifier.UnknownRequest.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(VigiliaJsonApiVerifier.UnknownRequest.selector, 0));
         _escrow.submitWork{ value: _requiredDeposit() }(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
@@ -416,7 +410,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         ISomniaAgentRequester.Request memory details;
 
         vm.prank(_attacker);
-        vm.expectRevert(abi.encodeWithSelector(VigiliaSomniaAgentVerifier.Unauthorized.selector, _attacker));
+        vm.expectRevert(abi.encodeWithSelector(VigiliaJsonApiVerifier.Unauthorized.selector, _attacker));
         _verifier.handleResponse(1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
     }
 
@@ -424,7 +418,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         ISomniaAgentRequester.Response[] memory responses = _responses("Complete");
         ISomniaAgentRequester.Request memory details;
 
-        vm.expectRevert(abi.encodeWithSelector(VigiliaSomniaAgentVerifier.UnknownRequest.selector, 99));
+        vm.expectRevert(abi.encodeWithSelector(VigiliaJsonApiVerifier.UnknownRequest.selector, 99));
         _platform.callback(address(_verifier), 99, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
     }
 
@@ -435,7 +429,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
         ISomniaAgentRequester.Response[] memory responses = _responses("Complete");
         ISomniaAgentRequester.Request memory details;
 
-        vm.expectRevert(abi.encodeWithSelector(VigiliaSomniaAgentVerifier.RequestAlreadyFulfilled.selector, 1));
+        vm.expectRevert(abi.encodeWithSelector(VigiliaJsonApiVerifier.RequestAlreadyFulfilled.selector, 1));
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
     }
 
@@ -446,8 +440,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                VigiliaSomniaAgentVerifier.UnsupportedResponseStatus.selector,
-                ISomniaAgentRequester.ResponseStatus.Pending
+                VigiliaJsonApiVerifier.UnsupportedResponseStatus.selector, ISomniaAgentRequester.ResponseStatus.Pending
             )
         );
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Pending, details);
@@ -459,7 +452,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
     }
 
     function test_DecodeAgentString_DirectCallerReverts() public {
-        vm.expectRevert(VigiliaSomniaAgentVerifier.DecodeOnlySelf.selector);
+        vm.expectRevert(VigiliaJsonApiVerifier.DecodeOnlySelf.selector);
         _verifier.decodeAgentString(abi.encode("Complete"));
     }
 
@@ -699,7 +692,7 @@ contract VigiliaSomniaAgentVerifierTest is Test {
     function test_WithdrawVerificationRebate_NoPendingCreditReverts() public {
         vm.prank(_contractor);
         vm.expectRevert(
-            abi.encodeWithSelector(VigiliaSomniaAgentVerifier.NoPendingVerificationRebate.selector, _contractor)
+            abi.encodeWithSelector(VigiliaJsonApiVerifier.NoPendingVerificationRebate.selector, _contractor)
         );
         _verifier.withdrawVerificationRebate();
     }
