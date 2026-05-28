@@ -70,11 +70,7 @@ cache/
 out/
 
 # Ignores development broadcast logs
-!/broadcast
-/broadcast/*/31337/
-/broadcast/**/dry-run/
-*/broadcast/
-**/broadcast/
+broadcast/
 
 # Dotenv files
 .env
@@ -96,5 +92,5 @@ draft/
 notes.txt
 .vercel
 
-# Generated deployment manifests
-deployments/*.json
+# Local deployment scratch files. Canonical deployments/*.json artifacts are public and trackable.
+deployments/*.local.json
