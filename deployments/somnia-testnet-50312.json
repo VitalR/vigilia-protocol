@@ -7,6 +7,8 @@
   "chainId": 50312,
   "deployer": "0x8998a83a6192dD5500EEbb666cad0bC2Ab0258E7",
   "deploymentName": "vigilia-json-api-smoke",
+  "blockscoutApiUrl": "https://somnia.w3us.site/api/",
+  "contractsVerified": true,
   "explorerBaseUrl": "https://shannon-explorer.somnia.network/",
   "jsonApiAgentId": 13174292974160097713,
   "llmInferenceAgentId": 12847293847561029384,
@@ -21,5 +23,8 @@
   "vigiliaEscrowTransactionHash": "0xb075a26ad4f9788430ead2ee17c87fac73a7c7fda40794cc44774f2f29f5bb7a",
   "vigiliaEscrow": "0x8bb7a1DF033FfcAFa376dbC930Df31f215f0403a",
   "vigiliaJsonApiVerifierTransactionHash": "0x4ec3d482ddb775672dec79da6922e4a6af88b1e5fef0cf26a08a0a1ba6ca3f2f",
-  "vigiliaJsonApiVerifier": "0x880154CCa9C3fddA472250B16a1DF8118E3c0960"
+  "vigiliaJsonApiVerifier": "0x880154CCa9C3fddA472250B16a1DF8118E3c0960",
+  "vigiliaEscrowVerified": true,
+  "vigiliaJsonApiVerifierVerified": true,
+  "verifiedAt": 1780168096
 }

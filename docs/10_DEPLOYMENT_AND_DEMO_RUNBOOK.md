@@ -309,3 +309,90 @@ make demo-submit-complete
 `VIGILIA_EVIDENCE_JSON_URL`, because the deployed v0.1.0 contract intentionally keeps retry scoped to the same
 submission. This is useful for transient agent/API failures and mutable static URLs; revised immutable evidence should
 use `submitWork`.
+
+## Live Smoke Result - 2026-05-30
+
+### Environment
+
+- Chain: Somnia testnet `50312`
+- Deployment: `vigilia-json-api-smoke` `v0.1.0`
+- Escrow: `0x8bb7a1DF033FfcAFa376dbC930Df31f215f0403a`
+- JSON API verifier: `0x880154CCa9C3fddA472250B16a1DF8118E3c0960`
+- Agent ID: `13174292974160097713`
+- Active agent type: `json-api-request`
+- minimumRequestDeposit: `120000000000000000` wei
+- Evidence URL: not configured
+
+### Commands Run
+
+```bash
+git status --short
+git log --oneline -5
+find . -maxdepth 3 -type f
+forge fmt --check
+forge build
+forge test
+git diff --check
+make check
+make env-check
+make account
+make balance
+make platform-check
+make deployment-addresses
+make verifier-deposit
+make evidence-url
+curl -sS -i https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/complete.json
+cast call 0x880154CCa9C3fddA472250B16a1DF8118E3c0960 "escrow()(address)" --rpc-url https://api.infra.testnet.somnia.network/
+cast call 0x8bb7a1DF033FfcAFa376dbC930Df31f215f0403a "verifier()(address)" --rpc-url https://api.infra.testnet.somnia.network/
+cast call 0x880154CCa9C3fddA472250B16a1DF8118E3c0960 "agentId()(uint256)" --rpc-url https://api.infra.testnet.somnia.network/
+```
+
+### Happy Path Result
+
+- Task ID: not created
+- Submission ID: not created
+- Create tx: not broadcast
+- Fund tx: not broadcast
+- Submit tx: not broadcast
+- Platform request ID: not created
+- Callback tx / observed callback event: none
+- State after callback: not applicable
+- Approve tx: not broadcast
+- Claim tx: not broadcast
+- Final state: blocked before live transactions
+
+The deployed contract wiring is healthy:
+
+- `verifier.escrow()` returned `0x8bb7a1DF033FfcAFa376dbC930Df31f215f0403a`
+- `escrow.verifier()` returned `0x880154CCa9C3fddA472250B16a1DF8118E3c0960`
+- `verifier.agentId()` returned `13174292974160097713`
+- `make verifier-deposit` returned `120000000000000000`
+- deployer balance was `99.467661118` STT
+
+### VerificationFailed / Recovery Result
+
+- Malformed evidence URL: not configured
+- Submit tx: not broadcast
+- Platform request ID: not created
+- State after callback: not applicable
+- Recovery path used: not run
+- Recovery tx: not broadcast
+- Final state: blocked before live transactions
+
+### Issues / Notes
+
+- `make evidence-url` failed because `VIGILIA_EVIDENCE_JSON_URL` is not set.
+- The candidate GitHub raw URL
+  `https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/complete.json` returned `404: Not Found`,
+  because the demo evidence fixture is not public on `main` yet.
+- No live task, funding, submit, approval, or claim transaction was broadcast. This avoids creating a half-demo task
+  before the public JSON evidence endpoint exists.
+- To unblock the live E2E smoke flow, host a public endpoint that returns exactly `{"verdict":"Complete"}` and run:
+
+```bash
+export VIGILIA_EVIDENCE_JSON_URL=<public URL returning {"verdict":"Complete"}>
+make demo-create-task
+export DEMO_TASK_ID=<task id from logs>
+make demo-fund-task
+make demo-submit-complete
+```

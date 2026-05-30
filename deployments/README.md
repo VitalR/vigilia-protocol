@@ -19,4 +19,8 @@ The v0.1.0 JSON API verifier should not be presented as supporting LLM Inference
 agent IDs. v0.2.0 should add explicit LLM Parse Website and/or LLM Inference verifier/coordinator logic with the correct
 Somnia payloads and bounded-result handling.
 
+Live smoke status on 2026-05-30: deployment wiring and read-only RPC checks passed, but the end-to-end JSON API smoke
+transaction flow was not broadcast because `VIGILIA_EVIDENCE_JSON_URL` was not configured and the demo evidence fixture
+was not yet publicly available from GitHub raw. See `docs/10_DEPLOYMENT_AND_DEMO_RUNBOOK.md` for the dated run log.
+
 Local scratch artifacts can use `*.local.json`; those files are ignored by git.
