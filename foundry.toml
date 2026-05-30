@@ -20,8 +20,11 @@ fs_permissions = [
   { access = "read-write", path = "./broadcast" }
 ]
 
+[profile.ci]
+offline = false
+
 [fmt]
-exclude=["lib", "./lib"]
+ignore=["lib/**"]
 tab_width = 4
 line_length = 120
 bracket_spacing = true

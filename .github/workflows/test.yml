@@ -39,9 +39,6 @@ jobs:
           cast --version
           anvil --version
 
-      - name: Clear Foundry cache
-        run: forge cache clean
-
       - name: Check formatting
         run: forge fmt --check
 
