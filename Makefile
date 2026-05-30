@@ -5,7 +5,9 @@ SHELL := /bin/bash
 
 DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312.json
 DEPLOY_SCRIPT ?= script/DeployVigiliaSystem.s.sol:DeployVigiliaSystem
+MULTI_AGENT_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaMultiAgentVerifier.s.sol:DeployVigiliaMultiAgentVerifier
 DEMO_SCRIPT ?= script/demo/VigiliaJsonApiSmokeDemo.s.sol:VigiliaJsonApiSmokeDemo
+CANARY_SCRIPT ?= script/demo/VigiliaAgentCanary.s.sol:VigiliaAgentCanary
 GAS_ESTIMATE_MULTIPLIER ?= 200
 DEMO_GAS_ESTIMATE_MULTIPLIER ?= 200
 DEMO_GAS_LIMIT ?= 10000000
@@ -14,7 +16,10 @@ DEMO_GAS_LIMIT ?= 10000000
 	deploy-somnia deploy-somnia-dry-run show-deployment verify-somnia-escrow verify-somnia-json-verifier verify-somnia-verifier \
 	deployment-addresses verifier-deposit evidence-url required-agent-deposit \
 	demo-create-task demo-fund-task demo-submit-complete demo-submit-malformed demo-inspect-task demo-approve-task \
-	demo-claim-task demo-retry-verification require-env
+	demo-claim-task demo-retry-verification \
+	multi-agent-deploy-dry-run multi-agent-deploy-somnia multi-agent-canary-json \
+	multi-agent-canary-llm-inference multi-agent-canary-llm-parse multi-agent-canary-inspect \
+	multi-agent-deposit-json multi-agent-deposit-llm-inference multi-agent-deposit-llm-parse require-env
 
 help:
 	@echo "Vigilia Protocol commands"
@@ -37,6 +42,8 @@ help:
 	@echo "Deployment:"
 	@echo "  make deploy-somnia-dry-run       Simulate deployment without writing deployment artifact"
 	@echo "  make deploy-somnia               Broadcast deployment and write $(DEPLOYMENT_ARTIFACT)"
+	@echo "  make multi-agent-deploy-dry-run  Simulate v0.2.0 canary verifier deployment"
+	@echo "  make multi-agent-deploy-somnia   Broadcast v0.2.0 canary verifier deployment"
 	@echo "  make show-deployment             Print deployment artifact"
 	@echo ""
 	@echo "Verification:"
@@ -55,6 +62,13 @@ help:
 	@echo "  make demo-approve-task           Approve DEMO_TASK_ID"
 	@echo "  make demo-claim-task             Claim DEMO_TASK_ID"
 	@echo "  make demo-retry-verification     Retry active failed submission for DEMO_TASK_ID"
+	@echo "  make multi-agent-canary-json     Request JSON API canary"
+	@echo "  make multi-agent-canary-llm-inference Request LLM Inference canary"
+	@echo "  make multi-agent-canary-llm-parse Request LLM Parse Website canary"
+	@echo "  make multi-agent-canary-inspect  Inspect CANARY_REQUEST_ID"
+	@echo "  make multi-agent-deposit-json    Print JSON canary deposit"
+	@echo "  make multi-agent-deposit-llm-inference Print LLM Inference canary deposit"
+	@echo "  make multi-agent-deposit-llm-parse Print LLM Parse Website canary deposit"
 
 fmt:
 	forge fmt
@@ -135,6 +149,14 @@ deploy-somnia:
 	@$(MAKE) --no-print-directory env-check
 	forge script $(DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-estimate-multiplier $(GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
 
+multi-agent-deploy-dry-run:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL SOMNIA_AGENT_PLATFORM SOMNIA_JSON_API_AGENT_ID AGENT_SUBCOMMITTEE_SIZE JSON_API_PRICE_PER_VALIDATOR_WEI JSON_CANARY_SELECTOR"
+	WRITE_DEPLOYMENT_ARTIFACT=false forge script $(MULTI_AGENT_DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(GAS_ESTIMATE_MULTIPLIER) -vvvv
+
+multi-agent-deploy-somnia:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL SOMNIA_AGENT_PLATFORM SOMNIA_JSON_API_AGENT_ID AGENT_SUBCOMMITTEE_SIZE JSON_API_PRICE_PER_VALIDATOR_WEI JSON_CANARY_SELECTOR"
+	forge script $(MULTI_AGENT_DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
+
 show-deployment:
 	@if [[ -f "$(DEPLOYMENT_ARTIFACT)" ]]; then \
 		cat "$(DEPLOYMENT_ARTIFACT)"; \
@@ -211,3 +233,31 @@ demo-claim-task:
 demo-retry-verification:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID AGENT_REQUEST_DEPOSIT_WEI"
 	DEMO_ACTION=retry forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation -vvvv
+
+multi-agent-canary-json:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER JSON_CANARY_URL JSON_CANARY_SELECTOR"
+	CANARY_ACTION=json-canary forge script $(CANARY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation --legacy -vvvv
+
+multi-agent-canary-llm-inference:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER LLM_CANARY_PROMPT"
+	CANARY_ACTION=llm-inference-canary forge script $(CANARY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation --legacy -vvvv
+
+multi-agent-canary-llm-parse:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER WEBSITE_CANARY_URL WEBSITE_CANARY_INSTRUCTION"
+	CANARY_ACTION=llm-parse-canary forge script $(CANARY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation --legacy -vvvv
+
+multi-agent-canary-inspect:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER CANARY_REQUEST_ID"
+	CANARY_ACTION=inspect-canary forge script $(CANARY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) -vvvv
+
+multi-agent-deposit-json:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER"
+	CANARY_ACTION=deposit CANARY_AGENT_KIND=json-api forge script $(CANARY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) -vvvv
+
+multi-agent-deposit-llm-inference:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER"
+	CANARY_ACTION=deposit CANARY_AGENT_KIND=llm-inference forge script $(CANARY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) -vvvv
+
+multi-agent-deposit-llm-parse:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER"
+	CANARY_ACTION=deposit CANARY_AGENT_KIND=llm-parse-website forge script $(CANARY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) -vvvv
