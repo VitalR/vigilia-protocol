@@ -5,11 +5,14 @@ SHELL := /bin/bash
 
 DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312.json
 DEPLOY_SCRIPT ?= script/DeployVigiliaSystem.s.sol:DeployVigiliaSystem
-GAS_ESTIMATE_MULTIPLIER ?= 2000
+DEMO_SCRIPT ?= script/demo/VigiliaJsonApiSmokeDemo.s.sol:VigiliaJsonApiSmokeDemo
+GAS_ESTIMATE_MULTIPLIER ?= 200
 
 .PHONY: help fmt build test check env-check account balance platform-code platform-deposit platform-check \
 	deploy-somnia deploy-somnia-dry-run show-deployment verify-somnia-escrow verify-somnia-json-verifier verify-somnia-verifier \
-	evidence-url required-agent-deposit require-env
+	deployment-addresses verifier-deposit evidence-url required-agent-deposit \
+	demo-create-task demo-fund-task demo-submit-complete demo-submit-malformed demo-inspect-task demo-approve-task \
+	demo-claim-task demo-retry-verification require-env
 
 help:
 	@echo "Vigilia Protocol commands"
@@ -26,6 +29,8 @@ help:
 	@echo "  make account                     Print deployer address derived from DEPLOYER_PRIVATE_KEY"
 	@echo "  make balance                     Print deployer STT balance"
 	@echo "  make platform-check              Check Somnia platform code and request deposit"
+	@echo "  make deployment-addresses        Print deployed v0.1.0 addresses"
+	@echo "  make verifier-deposit            Print VigiliaJsonApiVerifier minimumRequestDeposit"
 	@echo ""
 	@echo "Deployment:"
 	@echo "  make deploy-somnia-dry-run       Simulate deployment without writing deployment artifact"
@@ -40,6 +45,14 @@ help:
 	@echo "Demo helpers:"
 	@echo "  make evidence-url                Print configured evidence JSON URL"
 	@echo "  make required-agent-deposit      Print expected request deposit in wei"
+	@echo "  make demo-create-task            Create a JSON API smoke task"
+	@echo "  make demo-fund-task              Fund DEMO_TASK_ID"
+	@echo "  make demo-submit-complete        Submit current VIGILIA_EVIDENCE_JSON_URL"
+	@echo "  make demo-submit-malformed       Submit current malformed VIGILIA_EVIDENCE_JSON_URL"
+	@echo "  make demo-inspect-task           Inspect DEMO_TASK_ID"
+	@echo "  make demo-approve-task           Approve DEMO_TASK_ID"
+	@echo "  make demo-claim-task             Claim DEMO_TASK_ID"
+	@echo "  make demo-retry-verification     Retry active failed submission for DEMO_TASK_ID"
 
 fmt:
 	forge fmt
@@ -128,6 +141,16 @@ show-deployment:
 		exit 1; \
 	fi
 
+deployment-addresses:
+	@if [[ -n "$$VIGILIA_ESCROW" ]]; then echo "VIGILIA_ESCROW=$$VIGILIA_ESCROW"; fi
+	@if [[ -n "$$VIGILIA_JSON_API_VERIFIER" ]]; then echo "VIGILIA_JSON_API_VERIFIER=$$VIGILIA_JSON_API_VERIFIER"; fi
+	@if command -v jq >/dev/null 2>&1 && [[ -f "$(DEPLOYMENT_ARTIFACT)" ]]; then \
+		jq -r '"artifact=" + input_filename, "vigiliaEscrow=" + .vigiliaEscrow, "vigiliaJsonApiVerifier=" + .vigiliaJsonApiVerifier, "deploymentName=" + .deploymentName, "version=" + .version, "activeAgentType=" + .activeAgentType' "$(DEPLOYMENT_ARTIFACT)"; \
+	elif [[ -z "$$VIGILIA_ESCROW" || -z "$$VIGILIA_JSON_API_VERIFIER" ]]; then \
+		echo "Set VIGILIA_ESCROW and VIGILIA_JSON_API_VERIFIER or install jq to read $(DEPLOYMENT_ARTIFACT)"; \
+		exit 1; \
+	fi
+
 verify-somnia-json-verifier:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_CHAIN_ID SOMNIA_BLOCKSCOUT_API SOMNIA_AGENT_PLATFORM SOMNIA_AGENT_ID AGENT_SUBCOMMITTEE_SIZE AGENT_PRICE_PER_VALIDATOR SOMNIA_VERDICT_SELECTOR VIGILIA_JSON_API_VERIFIER"
 	@DEPLOYER=$${DEPLOYER_ADDRESS:-$$(cast wallet address --private-key "$$DEPLOYER_PRIVATE_KEY")}; \
@@ -145,8 +168,44 @@ evidence-url:
 	@$(MAKE) --no-print-directory require-env VARS="VIGILIA_EVIDENCE_JSON_URL"
 	@echo "$$VIGILIA_EVIDENCE_JSON_URL"
 
+verifier-deposit:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_JSON_API_VERIFIER"
+	@cast call "$$VIGILIA_JSON_API_VERIFIER" "minimumRequestDeposit()(uint256)" --rpc-url "$$SOMNIA_RPC_URL"
+
 required-agent-deposit:
 	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_AGENT_PLATFORM SOMNIA_RPC_URL AGENT_SUBCOMMITTEE_SIZE AGENT_PRICE_PER_VALIDATOR"
 	@RESERVE=$$(cast call "$$SOMNIA_AGENT_PLATFORM" "getRequestDeposit()(uint256)" --rpc-url "$$SOMNIA_RPC_URL"); \
 	TOTAL=$$((RESERVE + (AGENT_SUBCOMMITTEE_SIZE * AGENT_PRICE_PER_VALIDATOR))); \
 	echo "$$TOTAL"
+
+demo-create-task:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_AMOUNT_WEI DEMO_REVIEW_WINDOW"
+	DEMO_ACTION=create forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --broadcast -vvvv
+
+demo-fund-task:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID"
+	DEMO_ACTION=fund forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --broadcast -vvvv
+
+demo-submit-complete:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID VIGILIA_EVIDENCE_JSON_URL AGENT_REQUEST_DEPOSIT_WEI"
+	DEMO_ACTION=submit forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --broadcast --skip-simulation -vvvv
+
+demo-submit-malformed:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID VIGILIA_EVIDENCE_JSON_URL AGENT_REQUEST_DEPOSIT_WEI"
+	DEMO_ACTION=submit forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --broadcast --skip-simulation -vvvv
+
+demo-inspect-task:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID"
+	DEMO_ACTION=inspect forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --broadcast -vvvv
+
+demo-approve-task:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID"
+	DEMO_ACTION=approve forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --broadcast -vvvv
+
+demo-claim-task:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID"
+	DEMO_ACTION=claim forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --broadcast -vvvv
+
+demo-retry-verification:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID AGENT_REQUEST_DEPOSIT_WEI"
+	DEMO_ACTION=retry forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --broadcast --skip-simulation -vvvv

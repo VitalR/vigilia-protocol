@@ -156,3 +156,156 @@ forge script script/DeployVigiliaSystem.s.sol:DeployVigiliaSystem \
   --broadcast \
   -vvvv
 ```
+
+## v0.1.0 JSON API Smoke Lifecycle
+
+The live v0.1.0 deployment is a JSON API smoke deployment, not final multi-agent verification.
+
+```text
+Deployment name: vigilia-json-api-smoke
+Version: v0.1.0
+Escrow: 0x8bb7a1DF033FfcAFa376dbC930Df31f215f0403a
+JSON API verifier: 0x880154CCa9C3fddA472250B16a1DF8118E3c0960
+Active agent type: json-api-request
+```
+
+The current verifier uses the Somnia JSON API Request base agent and extracts `SOMNIA_VERDICT_SELECTOR=verdict` from a
+public JSON endpoint. It does not support LLM Inference or LLM Parse Website by switching `SOMNIA_AGENT_ID`; those
+require a v0.2.0 verifier/coordinator with the correct payloads and result handling.
+
+### Evidence Hosting
+
+Local examples live under `demo/evidence/`:
+
+```text
+demo/evidence/complete.json
+demo/evidence/needs-review.json
+demo/evidence/incomplete.json
+demo/evidence/malformed.json
+```
+
+For live Somnia tests, host the selected JSON from a public URL, such as a GitHub raw URL, Vercel static file, or another
+public static host. The first smoke test should use:
+
+```json
+{"verdict":"Complete"}
+```
+
+Then set:
+
+```bash
+export VIGILIA_EVIDENCE_JSON_URL=<public complete.json URL>
+```
+
+### Demo Script
+
+All live smoke actions use one configurable script:
+
+```bash
+DEMO_ACTION=inspect forge script script/demo/VigiliaJsonApiSmokeDemo.s.sol:VigiliaJsonApiSmokeDemo \
+  --rpc-url "$SOMNIA_RPC_URL" \
+  --broadcast \
+  -vvvv
+```
+
+`submit` and `retry` Make targets add `--skip-simulation` and use `AGENT_REQUEST_DEPOSIT_WEI`. This avoids a local
+Foundry simulation mismatch against Somnia platform bytecode while still broadcasting the real transaction to Somnia.
+
+Supported `DEMO_ACTION` values:
+
+```text
+create
+fund
+submit
+inspect
+approve
+claim
+retry
+deposit
+```
+
+Role-specific keys are optional. If `CLIENT_PRIVATE_KEY`, `CONTRACTOR_PRIVATE_KEY`, or `RESOLVER_PRIVATE_KEY` are not
+set, the script falls back to `DEPLOYER_PRIVATE_KEY` for single-wallet smoke testing. Real usage should use separate
+accounts.
+
+### Makefile Flow
+
+Preflight:
+
+```bash
+make env-check
+make account
+make balance
+make platform-check
+make deployment-addresses
+make verifier-deposit
+```
+
+`make verifier-deposit` uses a direct RPC `cast call` and should return `120000000000000000` for the current v0.1.0
+deployment. Keep `AGENT_REQUEST_DEPOSIT_WEI` aligned with that value before submit or retry.
+
+Create and fund:
+
+```bash
+make demo-create-task
+
+# Set DEMO_TASK_ID from the script output.
+export DEMO_TASK_ID=<task id>
+
+make demo-fund-task
+```
+
+Submit evidence and wait for the async Somnia callback:
+
+```bash
+export VIGILIA_EVIDENCE_JSON_URL=<public complete.json URL>
+make demo-submit-complete
+
+# The Somnia callback is asynchronous. Wait for finalization, then inspect.
+make demo-inspect-task
+```
+
+Settle:
+
+```bash
+make demo-approve-task
+make demo-claim-task
+```
+
+If the task reaches `VerifiedComplete`, the contractor can also claim after the configured review window without manual
+approval. `DEMO_REVIEW_WINDOW=300` is a practical live-demo value.
+
+### VerificationFailed Flow
+
+To intentionally trigger `VerificationFailed`, submit an endpoint that does not expose `verdict`, for example:
+
+```json
+{"status":"unknown"}
+```
+
+Flow:
+
+```bash
+export VIGILIA_EVIDENCE_JSON_URL=<public malformed.json URL>
+make demo-submit-malformed
+
+# Wait for Somnia callback, then inspect. Expected state: VerificationFailed.
+make demo-inspect-task
+```
+
+Recovery has two paths:
+
+```bash
+# If the same public URL can be updated in place to return {"verdict":"Complete"},
+# retry the active submission.
+make demo-retry-verification
+
+# If the malformed URL is immutable, set a new complete endpoint and submit revised evidence instead.
+export VIGILIA_EVIDENCE_JSON_URL=<public complete.json URL>
+make demo-submit-complete
+```
+
+`retryVerification` uses the active submission's stored evidence URI. It does not read a new
+`VIGILIA_EVIDENCE_JSON_URL`, because the deployed v0.1.0 contract intentionally keeps retry scoped to the same
+submission. This is useful for transient agent/API failures and mutable static URLs; revised immutable evidence should
+use `submitWork`.
