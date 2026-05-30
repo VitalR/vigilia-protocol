@@ -8,6 +8,7 @@ DEPLOY_SCRIPT ?= script/DeployVigiliaSystem.s.sol:DeployVigiliaSystem
 DEMO_SCRIPT ?= script/demo/VigiliaJsonApiSmokeDemo.s.sol:VigiliaJsonApiSmokeDemo
 GAS_ESTIMATE_MULTIPLIER ?= 200
 DEMO_GAS_ESTIMATE_MULTIPLIER ?= 200
+DEMO_GAS_LIMIT ?= 10000000
 
 .PHONY: help fmt build test check env-check account balance platform-code platform-deposit platform-check \
 	deploy-somnia deploy-somnia-dry-run show-deployment verify-somnia-escrow verify-somnia-json-verifier verify-somnia-verifier \
@@ -181,32 +182,32 @@ required-agent-deposit:
 
 demo-create-task:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_AMOUNT_WEI DEMO_REVIEW_WINDOW"
-	DEMO_ACTION=create forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
+	DEMO_ACTION=create forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
 
 demo-fund-task:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID"
-	DEMO_ACTION=fund forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
+	DEMO_ACTION=fund forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
 
 demo-submit-complete:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID VIGILIA_EVIDENCE_JSON_URL AGENT_REQUEST_DEPOSIT_WEI"
-	DEMO_ACTION=submit forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation -vvvv
+	DEMO_ACTION=submit forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation -vvvv
 
 demo-submit-malformed:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID VIGILIA_EVIDENCE_JSON_URL AGENT_REQUEST_DEPOSIT_WEI"
-	DEMO_ACTION=submit forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation -vvvv
+	DEMO_ACTION=submit forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation -vvvv
 
 demo-inspect-task:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID"
-	DEMO_ACTION=inspect forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
+	DEMO_ACTION=inspect forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
 
 demo-approve-task:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID"
-	DEMO_ACTION=approve forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
+	DEMO_ACTION=approve forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
 
 demo-claim-task:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID"
-	DEMO_ACTION=claim forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
+	DEMO_ACTION=claim forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
 
 demo-retry-verification:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_ESCROW VIGILIA_JSON_API_VERIFIER DEMO_TASK_ID AGENT_REQUEST_DEPOSIT_WEI"
-	DEMO_ACTION=retry forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation -vvvv
+	DEMO_ACTION=retry forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation -vvvv

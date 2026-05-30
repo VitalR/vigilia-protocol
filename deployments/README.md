@@ -19,8 +19,12 @@ The v0.1.0 JSON API verifier should not be presented as supporting LLM Inference
 agent IDs. v0.2.0 should add explicit LLM Parse Website and/or LLM Inference verifier/coordinator logic with the correct
 Somnia payloads and bounded-result handling.
 
-Live smoke status on 2026-05-30: deployment wiring and read-only RPC checks passed, but the end-to-end JSON API smoke
-transaction flow was not broadcast because `VIGILIA_EVIDENCE_JSON_URL` was not configured and the demo evidence fixture
-was not yet publicly available from GitHub raw. See `docs/10_DEPLOYMENT_AND_DEMO_RUNBOOK.md` for the dated run log.
+Live smoke status on 2026-05-30/31: the v0.1.0 JSON API Request flow has been proven by official Somnia RPC
+receipts/logs: JSON API Request -> platform callback -> verifier bounded result -> escrow verdict recording. Shannon
+explorer search and address tabs may be incomplete or stale for these transactions, so direct RPC receipts are the
+canonical proof. The v0.1.0 deployment is JSON API only, not multi-agent and not LLM Parse Website / LLM Inference.
+See `docs/10_DEPLOYMENT_AND_DEMO_RUNBOOK.md` and `docs/proofs/2026-05-30-json-api-rpc-proof.md` for transaction hashes,
+request IDs, decoded events, the explorer caveat, and the gas-limit note. Blockscout verification now reports both
+deployed contracts as already verified.
 
 Local scratch artifacts can use `*.local.json`; those files are ignored by git.
