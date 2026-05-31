@@ -10,14 +10,15 @@ interface IVigiliaMultiAgentCanary {
         payable
         returns (uint256 platformRequestId);
 
-    function requestLlmInferenceCanary(string calldata _prompt) external payable returns (uint256 platformRequestId);
+    function requestLlmInferenceCanary(string calldata _prompt, string calldata _system, bool _chainOfThought)
+        external
+        payable
+        returns (uint256 platformRequestId);
 
     function requestLlmParseWebsiteCanary(string calldata _url, string calldata _instruction)
         external
         payable
         returns (uint256 platformRequestId);
-
-    function minimumRequestDeposit(VigiliaAgentTypes.AgentKind _kind) external view returns (uint256 deposit);
 
     function requests(uint256 _platformRequestId)
         external
@@ -98,7 +99,7 @@ contract VigiliaAgentCanary is Script {
         string memory url = vm.envString("JSON_CANARY_URL");
         if (bytes(url).length == 0) revert MissingEnv("JSON_CANARY_URL");
         string memory selector = vm.envOr("JSON_CANARY_SELECTOR", string("verdict"));
-        uint256 deposit = _verifier.minimumRequestDeposit(VigiliaAgentTypes.AgentKind.JsonApi);
+        uint256 deposit = _computedDeposit(_verifier, VigiliaAgentTypes.AgentKind.JsonApi);
 
         vm.startBroadcast(_config.deployerPrivateKey);
         uint256 requestId = _verifier.requestJsonApiCanary{ value: deposit }(url, selector);
@@ -114,13 +115,17 @@ contract VigiliaAgentCanary is Script {
     function _requestLlmInferenceCanary(CanaryConfig memory _config, IVigiliaMultiAgentCanary _verifier) private {
         string memory prompt = vm.envString("LLM_CANARY_PROMPT");
         if (bytes(prompt).length == 0) revert MissingEnv("LLM_CANARY_PROMPT");
-        uint256 deposit = _verifier.minimumRequestDeposit(VigiliaAgentTypes.AgentKind.LlmInference);
+        string memory system = vm.envOr("LLM_CANARY_SYSTEM", string(""));
+        bool chainOfThought = vm.envOr("LLM_CANARY_CHAIN_OF_THOUGHT", false);
+        uint256 deposit = _computedDeposit(_verifier, VigiliaAgentTypes.AgentKind.LlmInference);
 
         vm.startBroadcast(_config.deployerPrivateKey);
-        uint256 requestId = _verifier.requestLlmInferenceCanary{ value: deposit }(prompt);
+        uint256 requestId = _verifier.requestLlmInferenceCanary{ value: deposit }(prompt, system, chainOfThought);
         vm.stopBroadcast();
 
         console2.log("llmInferenceCanaryRequestId", requestId);
+        console2.log("llmInferenceSystem", system);
+        console2.log("llmInferenceChainOfThought", chainOfThought);
         console2.log("depositWei", deposit);
     }
 
@@ -130,7 +135,7 @@ contract VigiliaAgentCanary is Script {
         if (bytes(url).length == 0) revert MissingEnv("WEBSITE_CANARY_URL");
         string memory instruction = vm.envString("WEBSITE_CANARY_INSTRUCTION");
         if (bytes(instruction).length == 0) revert MissingEnv("WEBSITE_CANARY_INSTRUCTION");
-        uint256 deposit = _verifier.minimumRequestDeposit(VigiliaAgentTypes.AgentKind.LlmParseWebsite);
+        uint256 deposit = _computedDeposit(_verifier, VigiliaAgentTypes.AgentKind.LlmParseWebsite);
 
         vm.startBroadcast(_config.deployerPrivateKey);
         uint256 requestId = _verifier.requestLlmParseWebsiteCanary{ value: deposit }(url, instruction);
@@ -187,7 +192,23 @@ contract VigiliaAgentCanary is Script {
         console2.log("selector", selector);
         console2.log("canaryEnabled", canaryEnabled);
         console2.log("settlementEnabled", settlementEnabled);
-        console2.log("minimumRequestDepositWei", _verifier.minimumRequestDeposit(kind));
+        console2.log("platformReserveWei", _platformReserveEstimate());
+        console2.log("minimumRequestDepositWei", _computedDeposit(_verifier, kind));
+    }
+
+    /// @dev Computes the canary deposit without calling platform getters, which can fail in local script simulation.
+    function _computedDeposit(IVigiliaMultiAgentCanary _verifier, VigiliaAgentTypes.AgentKind _kind)
+        private
+        view
+        returns (uint256 deposit)
+    {
+        (, uint256 pricePerValidator, uint256 subcommitteeSize,,,) = _verifier.agentConfigs(_kind);
+        deposit = _platformReserveEstimate() + (pricePerValidator * subcommitteeSize);
+    }
+
+    /// @dev Informational estimate matching the current Somnia default floor.
+    function _platformReserveEstimate() private view returns (uint256 reserve) {
+        reserve = vm.envOr("AGENT_PLATFORM_RESERVE_WEI", uint256(0.03 ether));
     }
 
     /// @dev Reads `CANARY_AGENT_KIND`; defaults to JSON API for deposit commands.

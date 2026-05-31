@@ -150,12 +150,12 @@ deploy-somnia:
 	forge script $(DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-estimate-multiplier $(GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
 
 multi-agent-deploy-dry-run:
-	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL SOMNIA_AGENT_PLATFORM SOMNIA_JSON_API_AGENT_ID AGENT_SUBCOMMITTEE_SIZE JSON_API_PRICE_PER_VALIDATOR_WEI JSON_CANARY_SELECTOR"
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL SOMNIA_AGENT_PLATFORM SOMNIA_JSON_API_AGENT_ID AGENT_SUBCOMMITTEE_SIZE"
 	WRITE_DEPLOYMENT_ARTIFACT=false forge script $(MULTI_AGENT_DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(GAS_ESTIMATE_MULTIPLIER) -vvvv
 
 multi-agent-deploy-somnia:
-	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL SOMNIA_AGENT_PLATFORM SOMNIA_JSON_API_AGENT_ID AGENT_SUBCOMMITTEE_SIZE JSON_API_PRICE_PER_VALIDATOR_WEI JSON_CANARY_SELECTOR"
-	forge script $(MULTI_AGENT_DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(GAS_ESTIMATE_MULTIPLIER) --broadcast -vvvv
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL SOMNIA_AGENT_PLATFORM SOMNIA_JSON_API_AGENT_ID AGENT_SUBCOMMITTEE_SIZE"
+	forge script $(MULTI_AGENT_DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
 
 show-deployment:
 	@if [[ -f "$(DEPLOYMENT_ARTIFACT)" ]]; then \
@@ -235,16 +235,31 @@ demo-retry-verification:
 	DEMO_ACTION=retry forge script $(DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation -vvvv
 
 multi-agent-canary-json:
-	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER JSON_CANARY_URL JSON_CANARY_SELECTOR"
-	CANARY_ACTION=json-canary forge script $(CANARY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation --legacy -vvvv
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER JSON_CANARY_URL AGENT_SUBCOMMITTEE_SIZE"
+	@RESERVE=$${AGENT_PLATFORM_RESERVE_WEI:-30000000000000000}; \
+	PRICE=$${JSON_API_PRICE_PER_VALIDATOR_WEI:-$${AGENT_PRICE_PER_VALIDATOR:-30000000000000000}}; \
+	SELECTOR=$${JSON_CANARY_SELECTOR:-$${SOMNIA_VERDICT_SELECTOR:-verdict}}; \
+	DEPOSIT=$$((RESERVE + (AGENT_SUBCOMMITTEE_SIZE * PRICE))); \
+	echo "Sending JSON API canary with deposit $$DEPOSIT wei"; \
+	cast send "$$VIGILIA_MULTI_AGENT_VERIFIER" "requestJsonApiCanary(string,string)(uint256)" "$$JSON_CANARY_URL" "$$SELECTOR" --value "$$DEPOSIT" --gas-limit $(DEMO_GAS_LIMIT) --legacy --rpc-url "$$SOMNIA_RPC_URL" --private-key "$$DEPLOYER_PRIVATE_KEY"
 
 multi-agent-canary-llm-inference:
-	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER LLM_CANARY_PROMPT"
-	CANARY_ACTION=llm-inference-canary forge script $(CANARY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation --legacy -vvvv
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER LLM_CANARY_PROMPT AGENT_SUBCOMMITTEE_SIZE"
+	@RESERVE=$${AGENT_PLATFORM_RESERVE_WEI:-30000000000000000}; \
+	PRICE=$${LLM_INFERENCE_PRICE_PER_VALIDATOR_WEI:-70000000000000000}; \
+	SYSTEM=$${LLM_CANARY_SYSTEM:-}; \
+	CHAIN_OF_THOUGHT=$${LLM_CANARY_CHAIN_OF_THOUGHT:-false}; \
+	DEPOSIT=$$((RESERVE + (AGENT_SUBCOMMITTEE_SIZE * PRICE))); \
+	echo "Sending LLM Inference canary with deposit $$DEPOSIT wei"; \
+	cast send "$$VIGILIA_MULTI_AGENT_VERIFIER" "requestLlmInferenceCanary(string,string,bool)(uint256)" "$$LLM_CANARY_PROMPT" "$$SYSTEM" "$$CHAIN_OF_THOUGHT" --value "$$DEPOSIT" --gas-limit $(DEMO_GAS_LIMIT) --legacy --rpc-url "$$SOMNIA_RPC_URL" --private-key "$$DEPLOYER_PRIVATE_KEY"
 
 multi-agent-canary-llm-parse:
-	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER WEBSITE_CANARY_URL WEBSITE_CANARY_INSTRUCTION"
-	CANARY_ACTION=llm-parse-canary forge script $(CANARY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --skip-simulation --legacy -vvvv
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER WEBSITE_CANARY_URL WEBSITE_CANARY_INSTRUCTION AGENT_SUBCOMMITTEE_SIZE"
+	@RESERVE=$${AGENT_PLATFORM_RESERVE_WEI:-30000000000000000}; \
+	PRICE=$${LLM_PARSE_PRICE_PER_VALIDATOR_WEI:-100000000000000000}; \
+	DEPOSIT=$$((RESERVE + (AGENT_SUBCOMMITTEE_SIZE * PRICE))); \
+	echo "Sending LLM Parse Website canary with deposit $$DEPOSIT wei"; \
+	cast send "$$VIGILIA_MULTI_AGENT_VERIFIER" "requestLlmParseWebsiteCanary(string,string)(uint256)" "$$WEBSITE_CANARY_URL" "$$WEBSITE_CANARY_INSTRUCTION" --value "$$DEPOSIT" --gas-limit $(DEMO_GAS_LIMIT) --legacy --rpc-url "$$SOMNIA_RPC_URL" --private-key "$$DEPLOYER_PRIVATE_KEY"
 
 multi-agent-canary-inspect:
 	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER CANARY_REQUEST_ID"

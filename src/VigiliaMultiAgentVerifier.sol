@@ -295,14 +295,14 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
             _config.llmInferenceAgentId,
             _config.llmInferencePricePerValidator,
             _config.subcommitteeSize,
-            "inferString(string,string[])"
+            "inferString(string,string,bool,string[])"
         );
         _configureOptionalCanary(
             VigiliaAgentTypes.AgentKind.LlmParseWebsite,
             _config.llmParseWebsiteAgentId,
             _config.llmParseWebsitePricePerValidator,
             _config.subcommitteeSize,
-            "parseWebsite(string,string)"
+            "ExtractString(string,string,string[],string,bool,uint8,uint8)"
         );
     }
 
@@ -385,23 +385,37 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
 
     /// @notice Creates an LLM Inference canary without touching escrow settlement.
     /// @dev The prompt should instruct the model to return exactly one of the bounded verdict strings.
-    /// @param _prompt Prompt supplied to the candidate LLM Inference method.
+    /// @param _prompt Prompt supplied to the LLM Inference method.
+    /// @param _system Optional system prompt. Pass an empty string when unused.
+    /// @param _chainOfThought Whether to request chain-of-thought reasoning from the base agent.
     /// @return platformRequestId Somnia platform request identifier.
-    function requestLlmInferenceCanary(string calldata _prompt) external payable returns (uint256 platformRequestId) {
+    function requestLlmInferenceCanary(string calldata _prompt, string calldata _system, bool _chainOfThought)
+        public
+        payable
+        returns (uint256 platformRequestId)
+    {
         VigiliaAgentTypes.AgentKind kind = VigiliaAgentTypes.AgentKind.LlmInference;
         _requireCanaryEnabled(kind);
 
         string[] memory allowedValues = _allowedVerdictValues();
-        bytes memory payload = abi.encodeWithSelector(ILlmInferenceAgent.inferString.selector, _prompt, allowedValues);
-        platformRequestId = _createTrackedRequest(kind, 0, 0, msg.sender, keccak256(bytes(_prompt)), true, payload);
+        bytes memory payload = abi.encodeWithSelector(
+            ILlmInferenceAgent.inferString.selector, _prompt, _system, _chainOfThought, allowedValues
+        );
+        platformRequestId =
+            _createTrackedRequest(kind, 0, 0, msg.sender, keccak256(abi.encode(_prompt, _system)), true, payload);
 
         emit CanaryRequested(
-            platformRequestId, kind, msg.sender, agentConfigs[kind].agentId, msg.value, keccak256(bytes(_prompt))
+            platformRequestId,
+            kind,
+            msg.sender,
+            agentConfigs[kind].agentId,
+            msg.value,
+            keccak256(abi.encode(_prompt, _system))
         );
     }
 
     /// @notice Creates an LLM Parse Website canary without touching escrow settlement.
-    /// @dev The ABI is provisional and must be validated by Agent Explorer/generated snippets and live receipts.
+    /// @dev Uses the documented `ExtractString` direct URL mode with bounded verdict options.
     /// @param _url Public website URL to inspect.
     /// @param _instruction Extraction instruction asking for one bounded verdict string.
     /// @return platformRequestId Somnia platform request identifier.
@@ -413,7 +427,18 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         VigiliaAgentTypes.AgentKind kind = VigiliaAgentTypes.AgentKind.LlmParseWebsite;
         _requireCanaryEnabled(kind);
 
-        bytes memory payload = abi.encodeWithSelector(ILlmParseWebsiteAgent.parseWebsite.selector, _url, _instruction);
+        string[] memory allowedValues = _allowedVerdictValues();
+        bytes memory payload = abi.encodeWithSelector(
+            ILlmParseWebsiteAgent.ExtractString.selector,
+            "verdict",
+            "Vigilia milestone verification verdict. Return one bounded value.",
+            allowedValues,
+            _instruction,
+            _url,
+            false,
+            uint8(1),
+            uint8(70)
+        );
         platformRequestId =
             _createTrackedRequest(kind, 0, 0, msg.sender, keccak256(abi.encode(_url, _instruction)), true, payload);
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
-import { Script } from "@forge-std/Script.sol";
+import { Script, console2 } from "@forge-std/Script.sol";
 import { VigiliaMultiAgentVerifier } from "../../src/VigiliaMultiAgentVerifier.sol";
 
 /// @title DeployVigiliaMultiAgentVerifier
@@ -25,6 +25,7 @@ contract DeployVigiliaMultiAgentVerifier is Script {
         uint256 jsonApiPricePerValidator;
         uint256 llmInferencePricePerValidator;
         uint256 llmParseWebsitePricePerValidator;
+        uint256 platformReserveEstimate;
         string jsonSelector;
         string explorerBaseUrl;
     }
@@ -33,6 +34,7 @@ contract DeployVigiliaMultiAgentVerifier is Script {
     /// @return verifier Deployed v0.2.0 multi-agent verifier.
     function run() external returns (VigiliaMultiAgentVerifier verifier) {
         DeploymentConfig memory config = _loadConfig();
+        _printDeploymentSummary(config);
 
         vm.startBroadcast(config.deployerPrivateKey);
         verifier = new VigiliaMultiAgentVerifier(
@@ -69,10 +71,12 @@ contract DeployVigiliaMultiAgentVerifier is Script {
             config.llmParseWebsiteAgentId = vm.envOr("SOMNIA_LLM_WEB_AGENT_ID", uint256(0));
         }
         config.subcommitteeSize = vm.envUint("AGENT_SUBCOMMITTEE_SIZE");
-        config.jsonApiPricePerValidator = vm.envUint("JSON_API_PRICE_PER_VALIDATOR_WEI");
-        config.llmInferencePricePerValidator = vm.envOr("LLM_INFERENCE_PRICE_PER_VALIDATOR_WEI", uint256(0));
-        config.llmParseWebsitePricePerValidator = vm.envOr("LLM_PARSE_PRICE_PER_VALIDATOR_WEI", uint256(0));
-        config.jsonSelector = vm.envOr("JSON_CANARY_SELECTOR", string("verdict"));
+        config.jsonApiPricePerValidator =
+            vm.envOr("JSON_API_PRICE_PER_VALIDATOR_WEI", vm.envOr("AGENT_PRICE_PER_VALIDATOR", uint256(0.03 ether)));
+        config.llmInferencePricePerValidator = vm.envOr("LLM_INFERENCE_PRICE_PER_VALIDATOR_WEI", uint256(0.07 ether));
+        config.llmParseWebsitePricePerValidator = vm.envOr("LLM_PARSE_PRICE_PER_VALIDATOR_WEI", uint256(0.1 ether));
+        config.platformReserveEstimate = vm.envOr("AGENT_PLATFORM_RESERVE_WEI", uint256(0.03 ether));
+        config.jsonSelector = vm.envOr("JSON_CANARY_SELECTOR", vm.envOr("SOMNIA_VERDICT_SELECTOR", string("verdict")));
         config.explorerBaseUrl = vm.envOr("SOMNIA_BLOCK_EXPLORER", string(""));
     }
 
@@ -93,7 +97,7 @@ contract DeployVigiliaMultiAgentVerifier is Script {
         vm.serializeAddress(object, "deployer", _config.deployer);
         vm.serializeAddress(object, "vigiliaMultiAgentVerifier", _verifier);
         vm.serializeAddress(object, "somniaAgentPlatform", _config.platform);
-        vm.serializeString(object, "activeAgentTypes", "json-api,llm-inference-canary,llm-parse-website-canary");
+        vm.serializeString(object, "activeAgentTypes", _activeAgentTypes(_config));
         vm.serializeUint(object, "jsonApiAgentId", _config.jsonApiAgentId);
         if (_config.llmInferenceAgentId != 0) {
             vm.serializeUint(object, "llmInferenceAgentId", _config.llmInferenceAgentId);
@@ -114,5 +118,69 @@ contract DeployVigiliaMultiAgentVerifier is Script {
 
         string memory json = vm.serializeString(object, "artifactType", "vigilia-multi-agent-canary-deployment");
         vm.writeJson(json, _DEPLOYMENT_ARTIFACT);
+    }
+
+    /// @dev Logs public deployment config and computed deposits before dry-run or broadcast.
+    function _printDeploymentSummary(DeploymentConfig memory _config) private pure {
+        uint256 platformReserve = _config.platformReserveEstimate;
+
+        console2.log("deploymentName", _DEPLOYMENT_NAME);
+        console2.log("version", _VERSION);
+        console2.log("chainId", _config.chainId);
+        console2.log("deployer", _config.deployer);
+        console2.log("platform", _config.platform);
+        console2.log("platformReserveWei", platformReserve);
+        console2.log("subcommitteeSize", _config.subcommitteeSize);
+        console2.log("jsonApiAgentId", _config.jsonApiAgentId);
+        console2.log("jsonApiPricePerValidatorWei", _config.jsonApiPricePerValidator);
+        console2.log(
+            "jsonApiMinimumDepositWei", platformReserve + (_config.jsonApiPricePerValidator * _config.subcommitteeSize)
+        );
+        console2.log("llmInferenceAgentId", _config.llmInferenceAgentId);
+        console2.log("llmInferencePricePerValidatorWei", _config.llmInferencePricePerValidator);
+        console2.log(
+            "llmInferenceMinimumDepositWei",
+            _minimumOptionalDeposit(
+                platformReserve,
+                _config.llmInferenceAgentId,
+                _config.llmInferencePricePerValidator,
+                _config.subcommitteeSize
+            )
+        );
+        console2.log("llmParseWebsiteAgentId", _config.llmParseWebsiteAgentId);
+        console2.log("llmParseWebsitePricePerValidatorWei", _config.llmParseWebsitePricePerValidator);
+        console2.log(
+            "llmParseWebsiteMinimumDepositWei",
+            _minimumOptionalDeposit(
+                platformReserve,
+                _config.llmParseWebsiteAgentId,
+                _config.llmParseWebsitePricePerValidator,
+                _config.subcommitteeSize
+            )
+        );
+        console2.log("enabledCanaries", _activeAgentTypes(_config));
+        console2.log("enabledSettlementKinds", "json-api");
+    }
+
+    /// @dev Returns a comma-delimited public list of configured canary agent types.
+    function _activeAgentTypes(DeploymentConfig memory _config) private pure returns (string memory activeTypes) {
+        activeTypes = "json-api";
+        if (_config.llmInferenceAgentId != 0 && _config.llmInferencePricePerValidator != 0) {
+            activeTypes = string.concat(activeTypes, ",llm-inference-canary");
+        }
+        if (_config.llmParseWebsiteAgentId != 0 && _config.llmParseWebsitePricePerValidator != 0) {
+            activeTypes = string.concat(activeTypes, ",llm-parse-website-canary");
+        }
+    }
+
+    /// @dev Returns zero when an optional agent kind is not configured.
+    function _minimumOptionalDeposit(
+        uint256 _platformReserve,
+        uint256 _agentId,
+        uint256 _pricePerValidator,
+        uint256 _subcommitteeSize
+    ) private pure returns (uint256 deposit) {
+        if (_agentId == 0 || _pricePerValidator == 0) return 0;
+        deposit = _platformReserve + (_pricePerValidator * _subcommitteeSize);
     }
 }

@@ -69,9 +69,12 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
     string private constant _JSON_SELECTOR = "verdict";
     string private constant _JSON_URL = "https://example.com/complete.json";
-    string private constant _LLM_PROMPT = "Return Complete, NeedsReview, or Incomplete. Return Complete.";
+    string private constant _LLM_PROMPT = "The milestone is complete. Return exactly one allowed value.";
+    string private constant _LLM_SYSTEM = "You are a strict Vigilia verifier. Return only one allowed value.";
     string private constant _WEBSITE_URL = "https://example.com/";
     string private constant _WEBSITE_INSTRUCTION = "Return Complete, NeedsReview, or Incomplete.";
+    string private constant _WEBSITE_KEY = "verdict";
+    string private constant _WEBSITE_DESCRIPTION = "Vigilia milestone verification verdict. Return one bounded value.";
     string private constant _REQUIREMENTS_URI = "ipfs://requirements";
     bytes32 private constant _EVIDENCE_HASH = keccak256("evidence");
 
@@ -130,19 +133,22 @@ contract VigiliaMultiAgentVerifierTest is Test {
         string[] memory allowedValues = _allowedValues();
 
         vm.prank(_requester);
-        uint256 requestId = _verifier.requestLlmInferenceCanary{ value: deposit }(_LLM_PROMPT);
+        uint256 requestId = _verifier.requestLlmInferenceCanary{ value: deposit }(_LLM_PROMPT, _LLM_SYSTEM, false);
 
         assertEq(requestId, 1);
         assertEq(_platform.lastAgentId(), _LLM_INFERENCE_AGENT_ID);
         assertEq(
             _platform.lastPayload(),
-            abi.encodeWithSelector(ILlmInferenceAgent.inferString.selector, _LLM_PROMPT, allowedValues)
+            abi.encodeWithSelector(
+                ILlmInferenceAgent.inferString.selector, _LLM_PROMPT, _LLM_SYSTEM, false, allowedValues
+            )
         );
         assertEq(_platform.lastValue(), deposit);
     }
 
     function test_RequestLlmParseWebsiteCanary_EncodesIntendedPayload() public {
         uint256 deposit = _llmParseWebsiteDeposit();
+        string[] memory allowedValues = _allowedValues();
 
         vm.prank(_requester);
         uint256 requestId = _verifier.requestLlmParseWebsiteCanary{ value: deposit }(_WEBSITE_URL, _WEBSITE_INSTRUCTION);
@@ -151,7 +157,17 @@ contract VigiliaMultiAgentVerifierTest is Test {
         assertEq(_platform.lastAgentId(), _LLM_PARSE_WEBSITE_AGENT_ID);
         assertEq(
             _platform.lastPayload(),
-            abi.encodeWithSelector(ILlmParseWebsiteAgent.parseWebsite.selector, _WEBSITE_URL, _WEBSITE_INSTRUCTION)
+            abi.encodeWithSelector(
+                ILlmParseWebsiteAgent.ExtractString.selector,
+                _WEBSITE_KEY,
+                _WEBSITE_DESCRIPTION,
+                allowedValues,
+                _WEBSITE_INSTRUCTION,
+                _WEBSITE_URL,
+                false,
+                uint8(1),
+                uint8(70)
+            )
         );
         assertEq(_platform.lastValue(), deposit);
     }
@@ -174,7 +190,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
                 VigiliaMultiAgentVerifier.UnknownAgentKind.selector, VigiliaAgentTypes.AgentKind.LlmInference
             )
         );
-        verifier.requestLlmInferenceCanary{ value: _llmInferenceDeposit() }(_LLM_PROMPT);
+        verifier.requestLlmInferenceCanary{ value: _llmInferenceDeposit() }(_LLM_PROMPT, _LLM_SYSTEM, false);
     }
 
     function test_RequestJsonApiCanary_InsufficientDepositReverts() public {

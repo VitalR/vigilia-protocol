@@ -1,0 +1,23 @@
+{
+  "activeAgentTypes": "json-api,llm-inference-canary,llm-parse-website-canary",
+  "artifactType": "vigilia-multi-agent-canary-deployment",
+  "blockNumber": 396487716,
+  "chainId": 50312,
+  "deployer": "0x8998a83a6192dD5500EEbb666cad0bC2Ab0258E7",
+  "deploymentTxHash": "0x1ae6c8904b419b3f936b28fe02dd0c8425f2007ce6af598100c25196d5199126",
+  "deploymentName": "vigilia-multi-agent-canary",
+  "explorerBaseUrl": "https://shannon-explorer.somnia.network/",
+  "jsonApiAgentId": 13174292974160097713,
+  "jsonApiPricePerValidatorWei": 30000000000000000,
+  "jsonSelector": "verdict",
+  "llmInferenceAgentId": 12847293847561029384,
+  "llmInferencePricePerValidatorWei": 70000000000000000,
+  "llmParseWebsiteAgentId": 12875401142070969085,
+  "llmParseWebsitePricePerValidatorWei": 100000000000000000,
+  "network": "somnia-testnet",
+  "somniaAgentPlatform": "0x037Bb9C718F3f7fe5eCBDB0b600D607b52706776",
+  "subcommitteeSize": 3,
+  "timestamp": 1780188286,
+  "version": "v0.2.0",
+  "vigiliaMultiAgentVerifier": "0x52A44E2fB4741152fD6d5183b37500b5A7820Fa3"
+}
