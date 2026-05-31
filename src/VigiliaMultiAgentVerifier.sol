@@ -302,7 +302,7 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
             _config.llmParseWebsiteAgentId,
             _config.llmParseWebsitePricePerValidator,
             _config.subcommitteeSize,
-            "ExtractString(string,string,string[],string,bool,uint8,uint8)"
+            "ExtractString(string,string,string[],string,string,bool,uint8,uint8)"
         );
     }
 
