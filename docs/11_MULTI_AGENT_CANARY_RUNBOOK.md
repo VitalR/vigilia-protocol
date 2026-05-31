@@ -311,7 +311,7 @@ it proves the callback path and confirms the canary remains isolated from escrow
 
 Required proof before enabling LLM Parse Website settlement:
 
-- confirm `ExtractString(string,string,string[],string,bool,uint8,uint8)` request payload in the request receipt;
+- confirm `ExtractString(string,string,string[],string,string,bool,uint8,uint8)` request payload in the request receipt;
 - request tx succeeds;
 - callback tx goes to `SOMNIA_AGENT_PLATFORM`;
 - callback receipt includes `CanarySucceeded`;
@@ -401,6 +401,46 @@ LLM Parse Website canary:
 The Parse Website canary request payload used the documented `ExtractString` selector `0xc2dd1a7a`, but the platform
 returned terminal `Failed`. Do not enable website-parse settlement until a later canary produces `CanarySucceeded` with a
 bounded result.
+
+LLM Parse Website retry with literal verdict page:
+
+| Field | Value |
+| --- | --- |
+| observed date | `2026-05-31` |
+| URL | `https://httpbin.org/base64/dmVyZGljdDogQ29tcGxldGU=` |
+| served content | `verdict: Complete` |
+| instruction | `Extract the value of the field named verdict. Return only one value from these options: Complete, NeedsReview, Incomplete.` |
+| request tx | `0xef015d08b9d0e7169a4ad5e33b92586e97be46bc1f95be01f9fea5a5456e8cfe` |
+| request block | `397091254` |
+| request id | `3562025` / `0x365a29` |
+| callback tx | `0x185119fc46afb7759fff54933bf254a59635e1ccc8c8d5357093dd0b1037cea4` |
+| callback block | `397092354` |
+| callback `to` | `0x037Bb9C718F3f7fe5eCBDB0b600D607b52706776` |
+| event | `CanaryFailed` |
+| platform status | `Failed` (`3`) |
+| failure note | `somnia-agent-request:3562025` |
+| request context | `taskId=0`, `submissionId=0`, `isCanary=true`, `fulfilled=true` |
+
+The retry confirms the deployed verifier is reaching the Somnia platform with the documented `ExtractString` selector and
+receiving a real terminal platform callback. The failure is not a Vigilia decoding failure or unknown bounded-result
+failure; the platform status itself is `Failed`, so no raw result bytes were returned to parse.
+
+Next website-parse debugging step: expose an advanced canary function in a later deployment so live probes can vary
+`resolveUrl`, `numPages`, and `confidenceThreshold` without changing settlement policy:
+
+```solidity
+requestLlmParseWebsiteCanaryAdvanced(
+    string url,
+    string instruction,
+    bool resolveUrl,
+    uint8 numPages,
+    uint8 confidenceThreshold
+)
+```
+
+Until then, ask the Somnia team to inspect request `3562025` with request tx
+`0xef015d08b9d0e7169a4ad5e33b92586e97be46bc1f95be01f9fea5a5456e8cfe` and callback tx
+`0x185119fc46afb7759fff54933bf254a59635e1ccc8c8d5357093dd0b1037cea4`.
 
 ## RPC Evidence Commands
 
