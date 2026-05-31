@@ -2,16 +2,17 @@
 pragma solidity 0.8.34;
 
 import { Script, console2 } from "@forge-std/Script.sol";
+import { VigiliaEscrow } from "../../src/VigiliaEscrow.sol";
 import { VigiliaMultiAgentVerifier } from "../../src/VigiliaMultiAgentVerifier.sol";
 
-/// @title DeployVigiliaMultiAgentVerifier
-/// @notice Deploys the v0.2.0 canary-first multi-agent verifier on Somnia testnet.
-/// @dev This deployment intentionally does not replace the proven v0.1.0 JSON API verifier or escrow deployment.
-contract DeployVigiliaMultiAgentVerifier is Script {
-    string private constant _DEPLOYMENT_ARTIFACT = "deployments/somnia-testnet-50312-multi-agent-canary.json";
-    string private constant _DEPLOYMENT_NAME = "vigilia-multi-agent-canary";
+/// @title DeployVigiliaMultiAgentSettlement
+/// @notice Deploys a fresh v0.2.2 full settlement system: two-agent verifier + escrow + bind.
+/// @dev Does not mutate the proven v0.1.0 JSON API smoke deployment or the v0.2.0 canary verifier deployment.
+contract DeployVigiliaMultiAgentSettlement is Script {
+    string private constant _DEPLOYMENT_ARTIFACT = "deployments/somnia-testnet-50312-two-agent-settlement.json";
+    string private constant _DEPLOYMENT_NAME = "vigilia-two-agent-settlement";
     string private constant _NETWORK = "somnia-testnet";
-    string private constant _VERSION = "v0.2.0";
+    string private constant _VERSION = "v0.2.2";
 
     struct DeploymentConfig {
         uint256 deployerPrivateKey;
@@ -28,15 +29,18 @@ contract DeployVigiliaMultiAgentVerifier is Script {
         uint256 platformReserveEstimate;
         string jsonSelector;
         string explorerBaseUrl;
+        string blockscoutApiUrl;
     }
 
-    /// @notice Deploys the canary-first verifier and optionally writes a public deployment artifact.
-    /// @return verifier Deployed v0.2.0 multi-agent verifier.
-    function run() external returns (VigiliaMultiAgentVerifier verifier) {
+    /// @notice Deploys verifier, escrow, binds them, and optionally writes the public deployment artifact.
+    /// @return escrow Fresh VigiliaEscrow bound to the new verifier.
+    /// @return verifier Fresh VigiliaMultiAgentVerifier with JSON API settlement enabled.
+    function run() external returns (VigiliaEscrow escrow, VigiliaMultiAgentVerifier verifier) {
         DeploymentConfig memory config = _loadConfig();
         _printDeploymentSummary(config);
 
         vm.startBroadcast(config.deployerPrivateKey);
+
         verifier = new VigiliaMultiAgentVerifier(
             VigiliaMultiAgentVerifier.ConstructorConfig({
                 platform: config.platform,
@@ -49,13 +53,21 @@ contract DeployVigiliaMultiAgentVerifier is Script {
                 llmInferencePricePerValidator: config.llmInferencePricePerValidator,
                 llmParseWebsitePricePerValidator: config.llmParseWebsitePricePerValidator,
                 jsonApiSelector: config.jsonSelector,
-                enableLlmInferenceSettlement: false
+                enableLlmInferenceSettlement: true
             })
         );
+        escrow = new VigiliaEscrow(address(verifier));
+        verifier.bindEscrow(address(escrow));
+
         vm.stopBroadcast();
 
+        console2.log("vigiliaMultiAgentVerifier", address(verifier));
+        console2.log("vigiliaEscrow", address(escrow));
+        console2.log("boundEscrow", verifier.escrow());
+        console2.log("boundVerifier", address(escrow.verifier()));
+
         if (_shouldWriteArtifact()) {
-            _writeDeploymentArtifact(config, address(verifier));
+            _writeDeploymentArtifact(config, address(escrow), address(verifier));
         }
     }
 
@@ -79,6 +91,7 @@ contract DeployVigiliaMultiAgentVerifier is Script {
         config.platformReserveEstimate = vm.envOr("AGENT_PLATFORM_RESERVE_WEI", uint256(0.03 ether));
         config.jsonSelector = vm.envOr("JSON_CANARY_SELECTOR", vm.envOr("SOMNIA_VERDICT_SELECTOR", string("verdict")));
         config.explorerBaseUrl = vm.envOr("SOMNIA_BLOCK_EXPLORER", string(""));
+        config.blockscoutApiUrl = vm.envOr("SOMNIA_BLOCKSCOUT_API", string(""));
     }
 
     /// @dev Allows dry-run commands to suppress artifact writes with `WRITE_DEPLOYMENT_ARTIFACT=false`.
@@ -88,7 +101,7 @@ contract DeployVigiliaMultiAgentVerifier is Script {
     }
 
     /// @dev Writes a public, non-secret deployment snapshot for demos, verification, and reviewers.
-    function _writeDeploymentArtifact(DeploymentConfig memory _config, address _verifier) private {
+    function _writeDeploymentArtifact(DeploymentConfig memory _config, address _escrow, address _verifier) private {
         string memory object = "deployment";
 
         vm.serializeString(object, "deploymentName", _DEPLOYMENT_NAME);
@@ -96,9 +109,18 @@ contract DeployVigiliaMultiAgentVerifier is Script {
         vm.serializeString(object, "network", _NETWORK);
         vm.serializeUint(object, "chainId", _config.chainId);
         vm.serializeAddress(object, "deployer", _config.deployer);
+        vm.serializeAddress(object, "vigiliaEscrow", _escrow);
         vm.serializeAddress(object, "vigiliaMultiAgentVerifier", _verifier);
         vm.serializeAddress(object, "somniaAgentPlatform", _config.platform);
-        vm.serializeString(object, "activeAgentTypes", _activeAgentTypes(_config));
+        vm.serializeString(object, "enabledWorkflow", "JsonFactsToLlmVerdict");
+        vm.serializeString(object, "enabledSettlementAgentTypes", "json-api,llm-inference");
+        vm.serializeString(object, "disabledSettlementAgentTypes", "llm-parse-website");
+        vm.serializeString(object, "canaryAgentTypes", _canaryAgentTypes(_config));
+        vm.serializeString(
+            object,
+            "notes",
+            "v0.2.2 settlement uses JSON API facts followed by LLM Inference bounded verdicts. LLM Parse Website settlement remains disabled due to platform Failed callbacks."
+        );
         vm.serializeUint(object, "jsonApiAgentId", _config.jsonApiAgentId);
         if (_config.llmInferenceAgentId != 0) {
             vm.serializeUint(object, "llmInferenceAgentId", _config.llmInferenceAgentId);
@@ -107,17 +129,48 @@ contract DeployVigiliaMultiAgentVerifier is Script {
             vm.serializeUint(object, "llmParseWebsiteAgentId", _config.llmParseWebsiteAgentId);
         }
         vm.serializeString(object, "jsonSelector", _config.jsonSelector);
+        vm.serializeString(object, "jsonFactsSelector", "facts");
         vm.serializeUint(object, "subcommitteeSize", _config.subcommitteeSize);
         vm.serializeUint(object, "jsonApiPricePerValidatorWei", _config.jsonApiPricePerValidator);
         vm.serializeUint(object, "llmInferencePricePerValidatorWei", _config.llmInferencePricePerValidator);
         vm.serializeUint(object, "llmParseWebsitePricePerValidatorWei", _config.llmParseWebsitePricePerValidator);
+        vm.serializeUint(object, "jsonApiMinimumDepositWei", _minimumDeposit(_config, _config.jsonApiPricePerValidator));
+        vm.serializeUint(
+            object,
+            "twoAgentWorkflowMinimumDepositWei",
+            _minimumDeposit(_config, _config.jsonApiPricePerValidator)
+                + _minimumDeposit(_config, _config.llmInferencePricePerValidator)
+        );
+        vm.serializeUint(
+            object,
+            "llmInferenceMinimumDepositWei",
+            _minimumOptionalDeposit(
+                _config.platformReserveEstimate,
+                _config.llmInferenceAgentId,
+                _config.llmInferencePricePerValidator,
+                _config.subcommitteeSize
+            )
+        );
+        vm.serializeUint(
+            object,
+            "llmParseWebsiteMinimumDepositWei",
+            _minimumOptionalDeposit(
+                _config.platformReserveEstimate,
+                _config.llmParseWebsiteAgentId,
+                _config.llmParseWebsitePricePerValidator,
+                _config.subcommitteeSize
+            )
+        );
         vm.serializeUint(object, "blockNumber", block.number);
         vm.serializeUint(object, "timestamp", block.timestamp);
         if (bytes(_config.explorerBaseUrl).length != 0) {
             vm.serializeString(object, "explorerBaseUrl", _config.explorerBaseUrl);
         }
+        if (bytes(_config.blockscoutApiUrl).length != 0) {
+            vm.serializeString(object, "blockscoutApiUrl", _config.blockscoutApiUrl);
+        }
 
-        string memory json = vm.serializeString(object, "artifactType", "vigilia-multi-agent-canary-deployment");
+        string memory json = vm.serializeString(object, "artifactType", "vigilia-multi-agent-settlement-deployment");
         vm.writeJson(json, _DEPLOYMENT_ARTIFACT);
     }
 
@@ -127,6 +180,7 @@ contract DeployVigiliaMultiAgentVerifier is Script {
 
         console2.log("deploymentName", _DEPLOYMENT_NAME);
         console2.log("version", _VERSION);
+        console2.log("artifactPath", _DEPLOYMENT_ARTIFACT);
         console2.log("chainId", _config.chainId);
         console2.log("deployer", _config.deployer);
         console2.log("platform", _config.platform);
@@ -134,9 +188,8 @@ contract DeployVigiliaMultiAgentVerifier is Script {
         console2.log("subcommitteeSize", _config.subcommitteeSize);
         console2.log("jsonApiAgentId", _config.jsonApiAgentId);
         console2.log("jsonApiPricePerValidatorWei", _config.jsonApiPricePerValidator);
-        console2.log(
-            "jsonApiMinimumDepositWei", platformReserve + (_config.jsonApiPricePerValidator * _config.subcommitteeSize)
-        );
+        console2.log("jsonApiMinimumDepositWei", _minimumDeposit(_config, _config.jsonApiPricePerValidator));
+        console2.log("jsonFactsSelector", "facts");
         console2.log("llmInferenceAgentId", _config.llmInferenceAgentId);
         console2.log("llmInferencePricePerValidatorWei", _config.llmInferencePricePerValidator);
         console2.log(
@@ -159,19 +212,35 @@ contract DeployVigiliaMultiAgentVerifier is Script {
                 _config.subcommitteeSize
             )
         );
-        console2.log("enabledCanaries", _activeAgentTypes(_config));
-        console2.log("enabledSettlementKinds", "json-api");
+        console2.log("enabledWorkflow", "JsonFactsToLlmVerdict");
+        console2.log("enabledSettlementAgentTypes", "json-api,llm-inference");
+        console2.log("disabledSettlementAgentTypes", "llm-parse-website");
+        console2.log(
+            "twoAgentWorkflowMinimumDepositWei",
+            _minimumDeposit(_config, _config.jsonApiPricePerValidator)
+                + _minimumDeposit(_config, _config.llmInferencePricePerValidator)
+        );
+        console2.log("canaryAgentTypes", _canaryAgentTypes(_config));
     }
 
     /// @dev Returns a comma-delimited public list of configured canary agent types.
-    function _activeAgentTypes(DeploymentConfig memory _config) private pure returns (string memory activeTypes) {
+    function _canaryAgentTypes(DeploymentConfig memory _config) private pure returns (string memory activeTypes) {
         activeTypes = "json-api";
         if (_config.llmInferenceAgentId != 0 && _config.llmInferencePricePerValidator != 0) {
-            activeTypes = string.concat(activeTypes, ",llm-inference-canary");
+            activeTypes = string.concat(activeTypes, ",llm-inference");
         }
         if (_config.llmParseWebsiteAgentId != 0 && _config.llmParseWebsitePricePerValidator != 0) {
-            activeTypes = string.concat(activeTypes, ",llm-parse-website-canary");
+            activeTypes = string.concat(activeTypes, ",llm-parse-website");
         }
+    }
+
+    /// @dev Computes JSON API settlement deposit using the configured reserve estimate.
+    function _minimumDeposit(DeploymentConfig memory _config, uint256 _pricePerValidator)
+        private
+        pure
+        returns (uint256 deposit)
+    {
+        deposit = _config.platformReserveEstimate + (_pricePerValidator * _config.subcommitteeSize);
     }
 
     /// @dev Returns zero when an optional agent kind is not configured.

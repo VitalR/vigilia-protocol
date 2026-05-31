@@ -3,6 +3,7 @@ pragma solidity 0.8.34;
 
 import { IVigiliaVerifier } from "./interfaces/IVigiliaVerifier.sol";
 import { IVigiliaEscrowVerdictReceiver } from "./interfaces/IVigiliaEscrowVerdictReceiver.sol";
+import { VigiliaAgentTypes } from "./types/VigiliaAgentTypes.sol";
 import { VigiliaTypes } from "./types/VigiliaTypes.sol";
 
 /// @title VigiliaTrustedCallbackVerifier
@@ -123,21 +124,19 @@ contract VigiliaTrustedCallbackVerifier is IVigiliaVerifier {
         payable
         returns (bytes32 requestId)
     {
-        if (msg.sender != escrow) revert Unauthorized(msg.sender);
+        requestId = _requestVerification(_taskId, _submissionId, _evidenceURI);
+    }
 
-        nextRequestNonce++;
-        requestId = keccak256(abi.encode(block.chainid, address(this), _taskId, _submissionId, nextRequestNonce));
-
-        requests[requestId] = VerificationRequest({
-            taskId: _taskId,
-            submissionId: _submissionId,
-            evidenceURIHash: keccak256(bytes(_evidenceURI)),
-            exists: true,
-            fulfilled: false
-        });
-        activeRequest[_taskId][_submissionId] = requestId;
-
-        emit TrustedVerificationRequested(requestId, _taskId, _submissionId, _evidenceURI);
+    /// @inheritdoc IVigiliaVerifier
+    function requestVerification(
+        uint256 _taskId,
+        uint256 _submissionId,
+        address,
+        string calldata _evidenceURI,
+        string calldata,
+        VigiliaAgentTypes.SettlementWorkflow
+    ) external payable returns (bytes32 requestId) {
+        requestId = _requestVerification(_taskId, _submissionId, _evidenceURI);
     }
 
     /// @notice Handles a trusted manual callback and forwards the bounded verdict to escrow.
@@ -168,5 +167,32 @@ contract VigiliaTrustedCallbackVerifier is IVigiliaVerifier {
             .recordVerdict(request.taskId, request.submissionId, _requestId, _verdict, _verifierNotesURI);
 
         emit TrustedVerificationCallback(_requestId, request.taskId, request.submissionId, _verdict, _verifierNotesURI);
+    }
+
+    /// @dev Records a trusted verification request for the bound escrow and marks it active for the task/submission.
+    /// @dev Workflow-specific overloads ignore requirements and workflow because this adapter uses manual callbacks
+    /// only. @param _taskId Task identifier supplied by escrow.
+    /// @param _submissionId Submission identifier supplied by escrow.
+    /// @param _evidenceURI Public evidence URI whose hash is stored for off-chain auditability.
+    /// @return requestId Deterministic request identifier returned to escrow.
+    function _requestVerification(uint256 _taskId, uint256 _submissionId, string calldata _evidenceURI)
+        private
+        returns (bytes32 requestId)
+    {
+        if (msg.sender != escrow) revert Unauthorized(msg.sender);
+
+        nextRequestNonce++;
+        requestId = keccak256(abi.encode(block.chainid, address(this), _taskId, _submissionId, nextRequestNonce));
+
+        requests[requestId] = VerificationRequest({
+            taskId: _taskId,
+            submissionId: _submissionId,
+            evidenceURIHash: keccak256(bytes(_evidenceURI)),
+            exists: true,
+            fulfilled: false
+        });
+        activeRequest[_taskId][_submissionId] = requestId;
+
+        emit TrustedVerificationRequested(requestId, _taskId, _submissionId, _evidenceURI);
     }
 }

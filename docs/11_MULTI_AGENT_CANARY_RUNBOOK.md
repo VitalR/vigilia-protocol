@@ -16,6 +16,9 @@ Somnia JSON API Request -> platform callback -> verifier bounded result -> escro
 Do not claim GitHub/docs/deployment/LLM/multi-agent verification until each new agent method has its own live
 request/callback receipt proof.
 
+For the v0.2.1 full settlement deployment line, see [`docs/12_MULTI_AGENT_SETTLEMENT_RUNBOOK.md`](./12_MULTI_AGENT_SETTLEMENT_RUNBOOK.md).
+This canary runbook remains scoped to the standalone v0.2.0 verifier at `0x52A44E2fB4741152fD6d5183b37500b5A7820Fa3`.
+
 ## Why A New Verifier
 
 `VigiliaJsonApiVerifier` is intentionally JSON API-specific:

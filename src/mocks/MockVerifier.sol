@@ -2,6 +2,7 @@
 pragma solidity 0.8.34;
 
 import { IVigiliaVerifier } from "../interfaces/IVigiliaVerifier.sol";
+import { VigiliaAgentTypes } from "../types/VigiliaAgentTypes.sol";
 
 /// @title MockVerifier
 /// @notice Deterministic verifier mock for tests and local demos before Somnia Agent integration.
@@ -37,6 +38,31 @@ contract MockVerifier is IVigiliaVerifier {
     function requestVerification(uint256 _taskId, uint256 _submissionId, address, string calldata _evidenceURI)
         external
         payable
+        returns (bytes32 requestId)
+    {
+        requestId = _requestVerification(_taskId, _submissionId, _evidenceURI);
+    }
+
+    /// @inheritdoc IVigiliaVerifier
+    function requestVerification(
+        uint256 _taskId,
+        uint256 _submissionId,
+        address,
+        string calldata _evidenceURI,
+        string calldata,
+        VigiliaAgentTypes.SettlementWorkflow
+    ) external payable returns (bytes32 requestId) {
+        requestId = _requestVerification(_taskId, _submissionId, _evidenceURI);
+    }
+
+    /// @dev Derives a deterministic request ID, tracks it locally, and emits a mock request event. Workflow-specific
+    /// overloads ignore requirements and workflow because this mock does not simulate Somnia.
+    /// @param _taskId Task identifier forwarded to the mock event.
+    /// @param _submissionId Submission identifier forwarded to the mock event.
+    /// @param _evidenceURI Evidence URI hashed into the deterministic request identifier.
+    /// @return requestId Deterministic request identifier, or zero when `forceZeroRequestId` is enabled.
+    function _requestVerification(uint256 _taskId, uint256 _submissionId, string calldata _evidenceURI)
+        private
         returns (bytes32 requestId)
     {
         nextRequestNonce++;

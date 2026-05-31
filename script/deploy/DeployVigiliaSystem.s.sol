@@ -2,8 +2,8 @@
 pragma solidity 0.8.34;
 
 import { Script } from "@forge-std/Script.sol";
-import { VigiliaEscrow } from "../src/VigiliaEscrow.sol";
-import { VigiliaJsonApiVerifier } from "../src/VigiliaJsonApiVerifier.sol";
+import { VigiliaEscrow } from "../../src/VigiliaEscrow.sol";
+import { VigiliaJsonApiVerifier } from "../../src/VigiliaJsonApiVerifier.sol";
 
 /// @title DeployVigiliaSystem
 /// @notice Deploys the current JSON API smoke version of the Vigilia MVP system on Somnia testnet.

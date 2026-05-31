@@ -14,6 +14,7 @@ contract VigiliaEscrowTest is Test {
         address resolver,
         uint256 amount,
         uint64 reviewWindow,
+        VigiliaEscrow.ClaimPolicy claimPolicy,
         string requirementsURI
     );
     event TaskFunded(uint256 indexed taskId, address indexed client, uint256 amount);
@@ -75,7 +76,16 @@ contract VigiliaEscrowTest is Test {
 
     function test_CreateTask_ClientCreatesTask() public {
         vm.expectEmit(true, true, true, true);
-        emit TaskCreated(1, _client, _contractor, _resolver, _TASK_AMOUNT, _REVIEW_WINDOW, _REQUIREMENTS_URI);
+        emit TaskCreated(
+            1,
+            _client,
+            _contractor,
+            _resolver,
+            _TASK_AMOUNT,
+            _REVIEW_WINDOW,
+            VigiliaEscrow.ClaimPolicy.ReviewWindowAutoClaim,
+            _REQUIREMENTS_URI
+        );
 
         uint256 taskId = _createTask();
 
@@ -104,6 +114,7 @@ contract VigiliaEscrowTest is Test {
         assertEq(uint256(stateBeforeDispute), uint256(VigiliaEscrow.TaskState.None));
         assertEq(requirementsURI, _REQUIREMENTS_URI);
         assertEq(reviewWindow, _REVIEW_WINDOW);
+        assertEq(uint256(_escrow.taskClaimPolicies(taskId)), uint256(VigiliaEscrow.ClaimPolicy.ReviewWindowAutoClaim));
         assertEq(_escrow.nextTaskId(), 2);
     }
 
@@ -609,6 +620,26 @@ contract VigiliaEscrowTest is Test {
         assertEq(_contractor.balance, contractorBalanceBefore + _TASK_AMOUNT);
     }
 
+    function test_Claim_ReviewWindowPolicyClientApprovalAllowsEarlyClaim() public {
+        (uint256 taskId,,) = _createFundSubmitAndCompleteTaskWithPolicy(VigiliaEscrow.ClaimPolicy.ReviewWindowAutoClaim);
+
+        vm.prank(_contractor);
+        vm.expectRevert();
+        _escrow.claim(taskId);
+
+        vm.prank(_client);
+        _escrow.approveTask(taskId);
+
+        uint256 contractorBalanceBefore = _contractor.balance;
+        vm.prank(_contractor);
+        _escrow.claim(taskId);
+
+        assertEq(_contractor.balance, contractorBalanceBefore + _TASK_AMOUNT);
+        (,,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(fundedAmount, 0);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Claimed));
+    }
+
     function test_Claim_NeedsReviewDoesNotAutoClaimAfterReviewWindow() public {
         (uint256 taskId,,) = _createFundSubmitAndNeedsReviewTask();
 
@@ -621,6 +652,48 @@ contract VigiliaEscrowTest is Test {
         _escrow.claim(taskId);
     }
 
+    function test_Claim_NeedsReviewNeverAutoClaimsUnderAnyPolicy() public {
+        _assertVerdictDoesNotAutoClaim(
+            VigiliaEscrow.ClaimPolicy.ClientApprovalOnly,
+            VigiliaTypes.VerificationVerdict.NeedsReview,
+            VigiliaEscrow.TaskState.NeedsReview
+        );
+        _assertVerdictDoesNotAutoClaim(
+            VigiliaEscrow.ClaimPolicy.ReviewWindowAutoClaim,
+            VigiliaTypes.VerificationVerdict.NeedsReview,
+            VigiliaEscrow.TaskState.NeedsReview
+        );
+        _assertVerdictDoesNotAutoClaim(
+            VigiliaEscrow.ClaimPolicy.ImmediateAutoClaim,
+            VigiliaTypes.VerificationVerdict.NeedsReview,
+            VigiliaEscrow.TaskState.NeedsReview
+        );
+    }
+
+    function test_Claim_IncompleteNeverAutoClaimsUnderAnyPolicy() public {
+        _assertVerdictDoesNotAutoClaim(
+            VigiliaEscrow.ClaimPolicy.ClientApprovalOnly,
+            VigiliaTypes.VerificationVerdict.Incomplete,
+            VigiliaEscrow.TaskState.Incomplete
+        );
+        _assertVerdictDoesNotAutoClaim(
+            VigiliaEscrow.ClaimPolicy.ReviewWindowAutoClaim,
+            VigiliaTypes.VerificationVerdict.Incomplete,
+            VigiliaEscrow.TaskState.Incomplete
+        );
+        _assertVerdictDoesNotAutoClaim(
+            VigiliaEscrow.ClaimPolicy.ImmediateAutoClaim,
+            VigiliaTypes.VerificationVerdict.Incomplete,
+            VigiliaEscrow.TaskState.Incomplete
+        );
+    }
+
+    function test_Claim_VerificationFailedNeverAutoClaimsUnderAnyPolicy() public {
+        _assertVerificationFailedDoesNotAutoClaim(VigiliaEscrow.ClaimPolicy.ClientApprovalOnly);
+        _assertVerificationFailedDoesNotAutoClaim(VigiliaEscrow.ClaimPolicy.ReviewWindowAutoClaim);
+        _assertVerificationFailedDoesNotAutoClaim(VigiliaEscrow.ClaimPolicy.ImmediateAutoClaim);
+    }
+
     function test_Claim_VerificationFailedBlocksClaim() public {
         (uint256 taskId,,) = _createFundSubmitAndVerificationFailedTask();
 
@@ -631,6 +704,78 @@ contract VigiliaEscrowTest is Test {
             )
         );
         _escrow.claim(taskId);
+    }
+
+    function test_Claim_ClientApprovalOnlyRequiresApprovalAfterComplete() public {
+        (uint256 taskId, uint256 submissionId,) =
+            _createFundSubmitAndCompleteTaskWithPolicy(VigiliaEscrow.ClaimPolicy.ClientApprovalOnly);
+
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.VerifiedComplete
+            )
+        );
+        _escrow.claim(taskId);
+
+        vm.prank(_client);
+        _escrow.approveTask(taskId);
+
+        vm.prank(_contractor);
+        _escrow.claim(taskId);
+
+        (,,,,, uint256 activeSubmissionId,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(activeSubmissionId, submissionId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Claimed));
+    }
+
+    function test_Claim_ImmediateAutoClaimAllowsImmediatePullAfterComplete() public {
+        (uint256 taskId,,) = _createFundSubmitAndCompleteTaskWithPolicy(VigiliaEscrow.ClaimPolicy.ImmediateAutoClaim);
+
+        uint256 contractorBalanceBefore = _contractor.balance;
+        vm.prank(_contractor);
+        _escrow.claim(taskId);
+
+        assertEq(_contractor.balance, contractorBalanceBefore + _TASK_AMOUNT);
+        (,,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(fundedAmount, 0);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Claimed));
+    }
+
+    function test_Claim_NeedsReviewNeverAutoClaimsWithImmediatePolicy() public {
+        (uint256 taskId,,) = _createFundSubmitAndVerdictWithPolicy(
+            VigiliaEscrow.ClaimPolicy.ImmediateAutoClaim, VigiliaTypes.VerificationVerdict.NeedsReview
+        );
+
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.NeedsReview)
+        );
+        _escrow.claim(taskId);
+    }
+
+    function test_Claim_IncompleteNeverAutoClaimsWithImmediatePolicy() public {
+        (uint256 taskId,,) = _createFundSubmitAndVerdictWithPolicy(
+            VigiliaEscrow.ClaimPolicy.ImmediateAutoClaim, VigiliaTypes.VerificationVerdict.Incomplete
+        );
+
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.Incomplete)
+        );
+        _escrow.claim(taskId);
+    }
+
+    function test_RecordVerdict_DoesNotPushFundsDuringCallback() public {
+        (uint256 taskId, uint256 submissionId,) = _createFundAndSubmitTask();
+        uint256 contractorBalanceBefore = _contractor.balance;
+
+        _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Complete);
+
+        assertEq(_contractor.balance, contractorBalanceBefore);
+        (,,,, uint256 fundedAmount,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(fundedAmount, _TASK_AMOUNT);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
     }
 
     function test_Claim_DisputeBeforeReviewWindowExpiresPausesAutoClaim() public {
@@ -1067,8 +1212,22 @@ contract VigiliaEscrowTest is Test {
         taskId = _escrow.createTask(_contractor, _resolver, _TASK_AMOUNT, _REVIEW_WINDOW, _REQUIREMENTS_URI);
     }
 
+    function _createTaskWithPolicy(VigiliaEscrow.ClaimPolicy _claimPolicy) private returns (uint256 taskId) {
+        vm.prank(_client);
+        taskId = _escrow.createTaskWithPolicy(
+            _contractor, _resolver, _TASK_AMOUNT, _REVIEW_WINDOW, _REQUIREMENTS_URI, _claimPolicy
+        );
+    }
+
     function _createAndFundTask() private returns (uint256 taskId) {
         taskId = _createTask();
+
+        vm.prank(_client);
+        _escrow.fundTask{ value: _TASK_AMOUNT }(taskId);
+    }
+
+    function _createAndFundTaskWithPolicy(VigiliaEscrow.ClaimPolicy _claimPolicy) private returns (uint256 taskId) {
+        taskId = _createTaskWithPolicy(_claimPolicy);
 
         vm.prank(_client);
         _escrow.fundTask{ value: _TASK_AMOUNT }(taskId);
@@ -1096,6 +1255,25 @@ contract VigiliaEscrowTest is Test {
         _recordVerdict(taskId, submissionId, VigiliaTypes.VerificationVerdict.Complete);
     }
 
+    function _createFundSubmitAndCompleteTaskWithPolicy(VigiliaEscrow.ClaimPolicy _claimPolicy)
+        private
+        returns (uint256 taskId, uint256 submissionId, bytes32 requestId)
+    {
+        (taskId, submissionId, requestId) =
+            _createFundSubmitAndVerdictWithPolicy(_claimPolicy, VigiliaTypes.VerificationVerdict.Complete);
+    }
+
+    function _createFundSubmitAndVerdictWithPolicy(
+        VigiliaEscrow.ClaimPolicy _claimPolicy,
+        VigiliaTypes.VerificationVerdict _verdict
+    ) private returns (uint256 taskId, uint256 submissionId, bytes32 requestId) {
+        taskId = _createAndFundTaskWithPolicy(_claimPolicy);
+
+        vm.prank(_contractor);
+        (submissionId, requestId) = _escrow.submitWork(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
+        _recordVerdict(taskId, submissionId, _verdict);
+    }
+
     function _createFundSubmitAndNeedsReviewTask()
         private
         returns (uint256 taskId, uint256 submissionId, bytes32 requestId)
@@ -1109,6 +1287,17 @@ contract VigiliaEscrowTest is Test {
         returns (uint256 taskId, uint256 submissionId, bytes32 requestId)
     {
         (taskId, submissionId, requestId) = _createFundAndSubmitTask();
+        _recordVerificationFailure(taskId, submissionId);
+    }
+
+    function _createFundSubmitAndVerificationFailedTaskWithPolicy(VigiliaEscrow.ClaimPolicy _claimPolicy)
+        private
+        returns (uint256 taskId, uint256 submissionId, bytes32 requestId)
+    {
+        taskId = _createAndFundTaskWithPolicy(_claimPolicy);
+
+        vm.prank(_contractor);
+        (submissionId, requestId) = _escrow.submitWork(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
         _recordVerificationFailure(taskId, submissionId);
     }
 
@@ -1129,6 +1318,32 @@ contract VigiliaEscrowTest is Test {
         bytes32 requestId = _submissionRequestId(_submissionId);
         vm.prank(address(_verifier));
         _escrow.recordVerificationFailure(_taskId, _submissionId, requestId, _VERIFIER_NOTES_URI);
+    }
+
+    function _assertVerdictDoesNotAutoClaim(
+        VigiliaEscrow.ClaimPolicy _claimPolicy,
+        VigiliaTypes.VerificationVerdict _verdict,
+        VigiliaEscrow.TaskState _expectedState
+    ) private {
+        (uint256 taskId,,) = _createFundSubmitAndVerdictWithPolicy(_claimPolicy, _verdict);
+
+        vm.warp(block.timestamp + _REVIEW_WINDOW);
+        vm.prank(_contractor);
+        vm.expectRevert(abi.encodeWithSelector(VigiliaEscrow.InvalidState.selector, taskId, _expectedState));
+        _escrow.claim(taskId);
+    }
+
+    function _assertVerificationFailedDoesNotAutoClaim(VigiliaEscrow.ClaimPolicy _claimPolicy) private {
+        (uint256 taskId,,) = _createFundSubmitAndVerificationFailedTaskWithPolicy(_claimPolicy);
+
+        vm.warp(block.timestamp + _REVIEW_WINDOW);
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VigiliaEscrow.InvalidState.selector, taskId, VigiliaEscrow.TaskState.VerificationFailed
+            )
+        );
+        _escrow.claim(taskId);
     }
 
     function _submissionRequestId(uint256 _submissionId) private view returns (bytes32 requestId) {

@@ -38,6 +38,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         uint256 indexed taskId,
         uint256 indexed submissionId,
         VigiliaAgentTypes.AgentKind kind,
+        VigiliaAgentTypes.SettlementWorkflow workflow,
         VigiliaTypes.VerificationVerdict verdict,
         string rawResult
     );
@@ -46,8 +47,22 @@ contract VigiliaMultiAgentVerifierTest is Test {
         uint256 indexed taskId,
         uint256 indexed submissionId,
         VigiliaAgentTypes.AgentKind kind,
+        VigiliaAgentTypes.SettlementWorkflow workflow,
         ISomniaAgentRequester.ResponseStatus status,
         string failureNotesURI
+    );
+    event JsonFactsReceived(
+        uint256 indexed platformRequestId, uint256 indexed taskId, uint256 indexed submissionId, string facts
+    );
+    event LlmVerdictRequested(
+        uint256 indexed parentRequestId,
+        uint256 indexed llmRequestId,
+        uint256 indexed taskId,
+        uint256 submissionId,
+        uint256 deposit
+    );
+    event LlmVerdictContinuationRequired(
+        uint256 indexed parentRequestId, uint256 indexed taskId, uint256 indexed submissionId
     );
     event StaleSomniaCallbackIgnored(
         uint256 indexed platformRequestId,
@@ -68,9 +83,13 @@ contract VigiliaMultiAgentVerifierTest is Test {
     uint64 private constant _REVIEW_WINDOW = 3 days;
 
     string private constant _JSON_SELECTOR = "verdict";
+    string private constant _FACTS_SELECTOR = "facts";
     string private constant _JSON_URL = "https://example.com/complete.json";
+    string private constant _FACTS = "repo_exists=true; readme_setup=true; tests_passed=true";
     string private constant _LLM_PROMPT = "The milestone is complete. Return exactly one allowed value.";
     string private constant _LLM_SYSTEM = "You are a strict Vigilia verifier. Return only one allowed value.";
+    string private constant _WORKFLOW_LLM_SYSTEM =
+        "You are a strict Vigilia work verifier. Return exactly one allowed value. Do not explain.";
     string private constant _WEBSITE_URL = "https://example.com/";
     string private constant _WEBSITE_INSTRUCTION = "Return Complete, NeedsReview, or Incomplete.";
     string private constant _WEBSITE_KEY = "verdict";
@@ -213,6 +232,120 @@ contract VigiliaMultiAgentVerifierTest is Test {
         assertEq(address(_platform).balance, _jsonDeposit());
     }
 
+    function test_RequestVerification_JsonFactsToLlmVerdictRequiresTotalDeposit() public {
+        uint256 taskId = _createAndFundTask();
+
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VigiliaMultiAgentVerifier.InvalidVerificationDeposit.selector,
+                _workflowDeposit(),
+                _workflowDeposit() - 1
+            )
+        );
+        _escrow.submitWork{ value: _workflowDeposit() - 1 }(taskId, _JSON_URL, _EVIDENCE_HASH);
+    }
+
+    function test_RequestVerification_JsonFactsToLlmVerdictRejectsSingleAgentDeposit() public {
+        uint256 taskId = _createAndFundTask();
+
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VigiliaMultiAgentVerifier.InvalidVerificationDeposit.selector, _workflowDeposit(), _jsonDeposit()
+            )
+        );
+        _escrow.submitWork{ value: _jsonDeposit() }(taskId, _JSON_URL, _EVIDENCE_HASH);
+    }
+
+    function test_RequestVerification_JsonFactsToLlmVerdictRejectsOverpayment() public {
+        uint256 taskId = _createAndFundTask();
+
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VigiliaMultiAgentVerifier.InvalidVerificationDeposit.selector,
+                _workflowDeposit(),
+                _workflowDeposit() + 1
+            )
+        );
+        _escrow.submitWork{ value: _workflowDeposit() + 1 }(taskId, _JSON_URL, _EVIDENCE_HASH);
+    }
+
+    function test_MinimumRequestDepositForWorkflow_SumsJsonAndLlmDeposits() public view {
+        assertEq(
+            _verifier.minimumRequestDepositForWorkflow(VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict),
+            _jsonDeposit() + _llmInferenceDeposit()
+        );
+    }
+
+    function test_SubmitWork_JsonFactsRequestUsesFactsSelectorAndKeepsLlmBudget() public {
+        _submitWork();
+
+        assertEq(_platform.lastAgentId(), _JSON_AGENT_ID);
+        assertEq(
+            _platform.lastPayload(),
+            abi.encodeWithSelector(IJsonApiAgent.fetchString.selector, _JSON_URL, _FACTS_SELECTOR)
+        );
+        assertEq(_platform.lastValue(), _jsonDeposit());
+        (,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
+        assertEq(prepaidBudget, _llmInferenceDeposit());
+    }
+
+    function test_HandleResponse_JsonFactsStartsLlmWithFactsAndRequirements() public {
+        _submitWork();
+
+        _callback(1, _FACTS);
+
+        string[] memory allowedValues = _allowedValues();
+        string memory expectedPrompt = string.concat(
+            "Task requirements:\n",
+            _REQUIREMENTS_URI,
+            "\n\nEvidence facts:\n",
+            _FACTS,
+            "\n\nClassify whether the submitted work satisfies the requirements.\nReturn exactly one allowed value."
+        );
+        assertEq(_platform.lastAgentId(), _LLM_INFERENCE_AGENT_ID);
+        assertEq(
+            _platform.lastPayload(),
+            abi.encodeWithSelector(
+                ILlmInferenceAgent.inferString.selector, expectedPrompt, _WORKFLOW_LLM_SYSTEM, false, allowedValues
+            )
+        );
+        assertEq(_platform.lastValue(), _llmInferenceDeposit());
+        (,,,,,,, string memory evidenceURI, string memory requirementsURI, string memory facts,,,,,,) =
+            _verifier.requests(2);
+        assertEq(evidenceURI, _JSON_URL);
+        assertEq(requirementsURI, _REQUIREMENTS_URI);
+        assertEq(facts, _FACTS);
+    }
+
+    function test_HandleResponse_JsonFactsCreateRequestFailureAllowsContinuation() public {
+        (uint256 taskId, uint256 submissionId,) = _submitWork();
+        _platform.setForceZeroRequestId(true);
+
+        vm.expectEmit(true, true, true, true, address(_verifier));
+        emit JsonFactsReceived(1, taskId, submissionId, _FACTS);
+        vm.expectEmit(true, true, true, true, address(_verifier));
+        emit LlmVerdictContinuationRequired(1, taskId, submissionId);
+        _callback(1, _FACTS);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,,,,, uint256 prepaidBudget,,,,, bool fulfilled) = _verifier.requests(1);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
+        assertEq(prepaidBudget, _llmInferenceDeposit());
+        assertTrue(fulfilled);
+
+        _platform.setForceZeroRequestId(false);
+        uint256 llmRequestId = _verifier.continueLlmVerification(1);
+        assertEq(llmRequestId, 2);
+
+        _callback(2, "Complete");
+
+        (,,,,,,, state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
+    }
+
     function test_HandleResponse_NonPlatformCallerReverts() public {
         _requestJsonCanary();
 
@@ -341,16 +474,56 @@ contract VigiliaMultiAgentVerifierTest is Test {
         (uint256 taskId, uint256 submissionId,) = _submitWork();
 
         vm.expectEmit(true, true, true, true, address(_verifier));
+        emit JsonFactsReceived(1, taskId, submissionId, _FACTS);
+        vm.expectEmit(true, true, true, true, address(_verifier));
+        emit LlmVerdictRequested(1, 2, taskId, submissionId, _llmInferenceDeposit());
+        _callback(1, _FACTS);
+
+        vm.expectEmit(true, true, true, true, address(_verifier));
         emit MultiAgentVerificationSucceeded(
-            1,
+            2,
             taskId,
             submissionId,
-            VigiliaAgentTypes.AgentKind.JsonApi,
+            VigiliaAgentTypes.AgentKind.LlmInference,
+            VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict,
             VigiliaTypes.VerificationVerdict.Complete,
             "Complete"
         );
 
-        _callback(1, "Complete");
+        _callback(2, "Complete");
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Complete));
+    }
+
+    function test_HandleResponse_LlmNeedsReviewRecordsNeedsReview() public {
+        (uint256 taskId, uint256 submissionId,) = _submitWork();
+        _callback(1, _FACTS);
+        _callback(2, "NeedsReview");
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.NeedsReview));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.NeedsReview));
+    }
+
+    function test_HandleResponse_LlmIncompleteRecordsIncomplete() public {
+        (uint256 taskId, uint256 submissionId,) = _submitWork();
+        _callback(1, _FACTS);
+        _callback(2, "Incomplete");
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Incomplete));
+        assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Incomplete));
+    }
+
+    function test_HandleResponse_LlmWhitespaceTrimmedCompleteRecordsComplete() public {
+        (uint256 taskId, uint256 submissionId,) = _submitWork();
+        _callback(1, _FACTS);
+        _callback(2, " \nComplete\r\n");
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
@@ -360,18 +533,20 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
     function test_HandleResponse_EscrowUnknownResultRecordsVerificationFailed() public {
         (uint256 taskId, uint256 submissionId,) = _submitWork();
+        _callback(1, _FACTS);
 
         vm.expectEmit(true, true, true, true, address(_verifier));
         emit MultiAgentVerificationFailed(
-            1,
+            2,
             taskId,
             submissionId,
-            VigiliaAgentTypes.AgentKind.JsonApi,
+            VigiliaAgentTypes.AgentKind.LlmInference,
+            VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict,
             ISomniaAgentRequester.ResponseStatus.Success,
-            "somnia-agent-request:1:unknown-verdict"
+            "somnia-agent-request:2:unknown-verdict"
         );
 
-        _callback(1, "Maybe");
+        _callback(2, "Maybe");
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
@@ -379,7 +554,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Unknown));
     }
 
-    function test_HandleResponse_EscrowFailedStatusRecordsVerificationFailed() public {
+    function test_HandleResponse_JsonFailedStatusRecordsVerificationFailed() public {
         (uint256 taskId, uint256 submissionId,) = _submitWork();
 
         ISomniaAgentRequester.Response[] memory responses = new ISomniaAgentRequester.Response[](0);
@@ -391,6 +566,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
             taskId,
             submissionId,
             VigiliaAgentTypes.AgentKind.JsonApi,
+            VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict,
             ISomniaAgentRequester.ResponseStatus.Failed,
             "somnia-agent-request:1"
         );
@@ -401,12 +577,65 @@ contract VigiliaMultiAgentVerifierTest is Test {
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
     }
 
+    function test_HandleResponse_JsonTimedOutStatusRecordsVerificationFailed() public {
+        (uint256 taskId,,) = _submitWork();
+
+        _statusCallback(1, ISomniaAgentRequester.ResponseStatus.TimedOut);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
+    }
+
+    function test_HandleResponse_JsonEmptyFactsRecordsVerificationFailed() public {
+        (uint256 taskId,,) = _submitWork();
+
+        _callback(1, "");
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
+        assertEq(prepaidBudget, _llmInferenceDeposit());
+        assertEq(_platform.nextRequestId(), 2);
+    }
+
+    function test_HandleResponse_LlmFailedStatusRecordsVerificationFailed() public {
+        (uint256 taskId,,) = _submitWork();
+        _callback(1, _FACTS);
+
+        _statusCallback(2, ISomniaAgentRequester.ResponseStatus.Failed);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
+    }
+
+    function test_HandleResponse_LlmTimedOutStatusRecordsVerificationFailed() public {
+        (uint256 taskId,,) = _submitWork();
+        _callback(1, _FACTS);
+
+        _statusCallback(2, ISomniaAgentRequester.ResponseStatus.TimedOut);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
+    }
+
+    function test_HandleResponse_LlmMalformedResultRecordsVerificationFailed() public {
+        (uint256 taskId,,) = _submitWork();
+        _callback(1, _FACTS);
+
+        ISomniaAgentRequester.Response[] memory responses = _malformedResponses();
+        ISomniaAgentRequester.Request memory details;
+        _platform.callback(address(_verifier), 2, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
+    }
+
     function test_HandleResponse_StaleRequestIdCannotOverwriteActiveSubmission() public {
         (uint256 taskId, uint256 submissionId,) = _submitWork();
         _forceEscrowVerificationFailed(taskId, submissionId, bytes32(uint256(1)));
 
         vm.prank(_contractor);
-        bytes32 retryRequestId = _escrow.retryVerification{ value: _jsonDeposit() }(taskId);
+        bytes32 retryRequestId = _escrow.retryVerification{ value: _workflowDeposit() }(taskId);
         assertEq(uint256(retryRequestId), 2);
 
         ISomniaAgentRequester.Response[] memory oldResponses = _responses("Complete");
@@ -419,13 +648,14 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
-        (,,,,,,, bool oldFulfilled) = _verifier.requests(1);
+        (,,,,,,,,,,,,,,, bool oldFulfilled) = _verifier.requests(1);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Unknown));
         assertTrue(oldFulfilled);
 
-        _callback(2, "Complete");
+        _callback(2, _FACTS);
+        _callback(3, "Complete");
 
         (,,,,,,, state,,,) = _escrow.tasks(taskId);
         (,,,,, verdict,,) = _escrow.submissions(submissionId);
@@ -448,7 +678,8 @@ contract VigiliaMultiAgentVerifierTest is Test {
                 jsonApiPricePerValidator: _JSON_PRICE_PER_VALIDATOR,
                 llmInferencePricePerValidator: _enableLlmInference ? _LLM_INFERENCE_PRICE_PER_VALIDATOR : 0,
                 llmParseWebsitePricePerValidator: _enableLlmParseWebsite ? _LLM_PARSE_PRICE_PER_VALIDATOR : 0,
-                jsonApiSelector: _JSON_SELECTOR
+                jsonApiSelector: _JSON_SELECTOR,
+                enableLlmInferenceSettlement: _enableLlmInference
             })
         );
     }
@@ -465,7 +696,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         taskId = _createAndFundTask();
 
         vm.prank(_contractor);
-        (submissionId, requestId) = _escrow.submitWork{ value: _jsonDeposit() }(taskId, _JSON_URL, _EVIDENCE_HASH);
+        (submissionId, requestId) = _escrow.submitWork{ value: _workflowDeposit() }(taskId, _JSON_URL, _EVIDENCE_HASH);
     }
 
     function _requestJsonCanary() private returns (uint256 requestId) {
@@ -479,6 +710,12 @@ contract VigiliaMultiAgentVerifierTest is Test {
         _platform.callback(
             address(_verifier), _requestId, responses, ISomniaAgentRequester.ResponseStatus.Success, details
         );
+    }
+
+    function _statusCallback(uint256 _requestId, ISomniaAgentRequester.ResponseStatus _status) private {
+        ISomniaAgentRequester.Response[] memory responses = new ISomniaAgentRequester.Response[](0);
+        ISomniaAgentRequester.Request memory details;
+        _platform.callback(address(_verifier), _requestId, responses, _status, details);
     }
 
     function _forceEscrowVerificationFailed(uint256 _taskId, uint256 _submissionId, bytes32 _requestId) private {
@@ -531,5 +768,9 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
     function _llmParseWebsiteDeposit() private pure returns (uint256 deposit) {
         deposit = _PLATFORM_DEPOSIT + (_SUBCOMMITTEE_SIZE * _LLM_PARSE_PRICE_PER_VALIDATOR);
+    }
+
+    function _workflowDeposit() private pure returns (uint256 deposit) {
+        deposit = _jsonDeposit() + _llmInferenceDeposit();
     }
 }

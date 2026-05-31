@@ -8,8 +8,26 @@ Deployment JSON files are safe to commit. They contain deployed contract address
 smoke deployment on Somnia testnet. It proves the real Somnia JSON API request/callback plumbing and the escrow
 settlement path.
 
-Each artifact should include a `deploymentName`, `version`, and `activeAgentType`. A later `vigilia-multi-agent-demo`
-deployment can carry the final multi-agent verifier story without rewriting history.
+`deployments/somnia-testnet-50312-multi-agent-canary.json` records the v0.2.0 canary-first multi-agent verifier. It proves
+real Somnia agent request/callback plumbing for JSON API, LLM Inference, and LLM Parse Website canaries without touching
+escrow.
+
+`deployments/somnia-testnet-50312-multi-agent-settlement.json` records the v0.2.1 full settlement system: a fresh
+`VigiliaMultiAgentVerifier` bound to a fresh `VigiliaEscrow`. JSON API settlement is enabled; LLM Inference and LLM Parse
+Website remain canary-capable but settlement-disabled in this pass.
+
+`deployments/somnia-testnet-50312-two-agent-settlement.json` records the v0.2.2 two-agent settlement system: JSON API
+fetches structured facts, LLM Inference returns the bounded final verdict, and `VigiliaEscrow` applies deterministic
+claim policy. LLM Parse Website remains disabled for settlement.
+The live proof is recorded in `docs/13_TWO_AGENT_SETTLEMENT_RUNBOOK.md` and
+`docs/proofs/2026-06-01-two-agent-settlement-rpc-proof.md`. Additional 2026-06-01 RPC runs covered `NeedsReview`,
+malformed-facts `VerificationFailed` plus recovery, `ClientApprovalOnly`, and `ReviewWindowAutoClaim`.
+Blockscout verification for the v0.2.2 addresses is still pending because the API continues to return
+`Address is not a smart-contract`; official RPC `cast code`, receipts, and logs are canonical until the explorer indexer
+catches up.
+
+Each artifact should include a `deploymentName`, `version`, and public agent configuration. Do not overwrite older
+artifacts when adding a new deployment line.
 
 The `.env` file contains private or local inputs, including private keys and machine-specific settings, and must not be committed. Deployment JSON may intentionally duplicate non-secret `.env` values because it is the public output snapshot of a deployment.
 

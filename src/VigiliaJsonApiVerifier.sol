@@ -5,6 +5,7 @@ import { IJsonApiAgent } from "./interfaces/IJsonApiAgent.sol";
 import { ISomniaAgentRequester } from "./interfaces/ISomniaAgentRequester.sol";
 import { IVigiliaEscrowVerdictReceiver } from "./interfaces/IVigiliaEscrowVerdictReceiver.sol";
 import { IVigiliaVerifier } from "./interfaces/IVigiliaVerifier.sol";
+import { VigiliaAgentTypes } from "./types/VigiliaAgentTypes.sol";
 import { VigiliaTypes } from "./types/VigiliaTypes.sol";
 
 /// @title VigiliaJsonApiVerifier
@@ -249,6 +250,25 @@ contract VigiliaJsonApiVerifier is IVigiliaVerifier {
     function requestVerification(uint256 _taskId, uint256 _submissionId, address _payer, string calldata _evidenceURI)
         external
         payable
+        returns (bytes32 vigiliaRequestId)
+    {
+        vigiliaRequestId = _requestVerification(_taskId, _submissionId, _payer, _evidenceURI);
+    }
+
+    /// @inheritdoc IVigiliaVerifier
+    function requestVerification(
+        uint256 _taskId,
+        uint256 _submissionId,
+        address _payer,
+        string calldata _evidenceURI,
+        string calldata,
+        VigiliaAgentTypes.SettlementWorkflow
+    ) external payable returns (bytes32 vigiliaRequestId) {
+        vigiliaRequestId = _requestVerification(_taskId, _submissionId, _payer, _evidenceURI);
+    }
+
+    function _requestVerification(uint256 _taskId, uint256 _submissionId, address _payer, string calldata _evidenceURI)
+        private
         returns (bytes32 vigiliaRequestId)
     {
         if (msg.sender != escrow) revert Unauthorized(msg.sender);

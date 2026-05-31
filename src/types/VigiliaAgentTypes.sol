@@ -12,4 +12,21 @@ library VigiliaAgentTypes {
         LlmInference,
         LlmParseWebsite
     }
+
+    /// @notice Settlement workflows supported by the multi-agent verifier.
+    /// @dev `JsonFactsToLlmVerdict` is the first production multi-agent settlement flow.
+    enum SettlementWorkflow {
+        Unknown,
+        JsonApiVerdict,
+        LlmDirectVerdict,
+        JsonFactsToLlmVerdict
+    }
+
+    /// @notice Async stage for a settlement platform request.
+    /// @dev Canary requests use `Unknown`; settlement requests use the stage that determines callback handling.
+    enum VerificationStage {
+        Unknown,
+        JsonFacts,
+        LlmVerdict
+    }
 }

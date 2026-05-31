@@ -2,6 +2,7 @@
 pragma solidity 0.8.34;
 
 import { IVigiliaVerifier } from "./interfaces/IVigiliaVerifier.sol";
+import { VigiliaAgentTypes } from "./types/VigiliaAgentTypes.sol";
 import { VigiliaTypes } from "./types/VigiliaTypes.sol";
 
 /// @title VigiliaEscrow
@@ -26,6 +27,7 @@ contract VigiliaEscrow {
         address resolver,
         uint256 amount,
         uint64 reviewWindow,
+        ClaimPolicy claimPolicy,
         string requirementsURI
     );
 
@@ -180,6 +182,14 @@ contract VigiliaEscrow {
     /// @notice Reverts when the verifier returns or references a zero request identifier.
     error ZeroRequestId();
 
+    /// @notice Claim policy selected per task.
+    /// @dev Controls whether a contractor may claim directly from `VerifiedComplete` without client approval.
+    enum ClaimPolicy {
+        ClientApprovalOnly, // Contractor must wait for explicit client approval with `approveTask`.
+        ReviewWindowAutoClaim, // Contractor may claim after `reviewWindow` expires following a complete verdict.
+        ImmediateAutoClaim // Contractor may claim immediately after a complete verdict without waiting or approval.
+    }
+
     /// @notice Task lifecycle states enforced by the escrow state machine.
     /// @dev `None` is reserved for missing tasks. `VerificationFailed` is infrastructure failure, not work failure.
     /// `Disputed` freezes settlement until the task-specific resolver allocates the escrow into pending withdrawal
@@ -265,6 +275,9 @@ contract VigiliaEscrow {
     /// @notice Native-token credits allocated by dispute resolution and withdrawable by each account.
     mapping(address account => uint256 amount) public pendingWithdrawals;
 
+    /// @notice Claim policy selected per task.
+    mapping(uint256 taskId => ClaimPolicy policy) public taskClaimPolicies;
+
     /// @notice Initializes the escrow with the verifier adapter allowed to request and record verification results.
     /// @param _verifier Verifier contract address. In MVP tests this is MockVerifier; later it can be a Somnia adapter.
     constructor(address _verifier) {
@@ -287,6 +300,27 @@ contract VigiliaEscrow {
         uint64 _reviewWindow,
         string calldata _requirementsURI
     ) external returns (uint256 taskId) {
+        taskId = createTaskWithPolicy(
+            _contractor, _resolver, _amount, _reviewWindow, _requirementsURI, ClaimPolicy.ReviewWindowAutoClaim
+        );
+    }
+
+    /// @notice Creates an unfunded fixed-price task with an explicit claim policy.
+    /// @param _contractor Contractor wallet allowed to submit evidence and claim approved funds.
+    /// @param _resolver Task-specific resolver wallet allowed to allocate disputed escrow.
+    /// @param _amount Exact native-token amount the client must later escrow for this task.
+    /// @param _reviewWindow Seconds after a complete verdict before review-window auto-claim is allowed.
+    /// @param _requirementsURI Public URI describing task requirements and expected evidence.
+    /// @param _claimPolicy Claim path for a verified-complete task.
+    /// @return taskId Newly created task identifier.
+    function createTaskWithPolicy(
+        address _contractor,
+        address _resolver,
+        uint256 _amount,
+        uint64 _reviewWindow,
+        string calldata _requirementsURI,
+        ClaimPolicy _claimPolicy
+    ) public returns (uint256 taskId) {
         if (_contractor == address(0)) revert InvalidAddress();
         if (_resolver == address(0)) revert InvalidAddress();
         if (_amount == 0) revert InvalidAmount();
@@ -300,8 +334,11 @@ contract VigiliaEscrow {
         task.state = TaskState.Created;
         task.requirementsURI = _requirementsURI;
         task.reviewWindow = _reviewWindow;
+        taskClaimPolicies[taskId] = _claimPolicy;
 
-        emit TaskCreated(taskId, msg.sender, _contractor, _resolver, _amount, _reviewWindow, _requirementsURI);
+        emit TaskCreated(
+            taskId, msg.sender, _contractor, _resolver, _amount, _reviewWindow, _claimPolicy, _requirementsURI
+        );
     }
 
     /// @notice Funds a created task with the exact required native-token amount.
@@ -349,7 +386,14 @@ contract VigiliaEscrow {
         submission.evidenceHash = _evidenceHash;
         submission.submittedAt = uint64(block.timestamp);
 
-        requestId = verifier.requestVerification{ value: msg.value }(_taskId, submissionId, msg.sender, _evidenceURI);
+        requestId = verifier.requestVerification{ value: msg.value }(
+            _taskId,
+            submissionId,
+            msg.sender,
+            _evidenceURI,
+            task.requirementsURI,
+            VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict
+        );
         if (requestId == bytes32(0)) revert ZeroRequestId();
         submission.requestId = requestId;
 
@@ -440,7 +484,12 @@ contract VigiliaEscrow {
         task.state = TaskState.Submitted;
 
         requestId = verifier.requestVerification{ value: msg.value }(
-            _taskId, submissionId, msg.sender, submission.evidenceURI
+            _taskId,
+            submissionId,
+            msg.sender,
+            submission.evidenceURI,
+            task.requirementsURI,
+            VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict
         );
         if (requestId == bytes32(0)) revert ZeroRequestId();
         submission.requestId = requestId;
@@ -474,7 +523,13 @@ contract VigiliaEscrow {
         _onlyContractor(task);
 
         if (task.state == TaskState.VerifiedComplete) {
-            _requireReviewWindowExpired(_taskId, task);
+            ClaimPolicy claimPolicy = taskClaimPolicies[_taskId];
+            if (claimPolicy == ClaimPolicy.ClientApprovalOnly) {
+                revert InvalidState(_taskId, task.state);
+            }
+            if (claimPolicy == ClaimPolicy.ReviewWindowAutoClaim) {
+                _requireReviewWindowExpired(_taskId, task);
+            }
         } else if (task.state != TaskState.Approved) {
             revert InvalidState(_taskId, task.state);
         }

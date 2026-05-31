@@ -4,13 +4,23 @@ SHELL := /bin/bash
 .EXPORT_ALL_VARIABLES:
 
 DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312.json
-DEPLOY_SCRIPT ?= script/DeployVigiliaSystem.s.sol:DeployVigiliaSystem
+DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaSystem.s.sol:DeployVigiliaSystem
 MULTI_AGENT_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaMultiAgentVerifier.s.sol:DeployVigiliaMultiAgentVerifier
+MULTI_SETTLEMENT_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaMultiAgentSettlement.s.sol:DeployVigiliaMultiAgentSettlement
+MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312-two-agent-settlement.json
+MULTI_SETTLEMENT_DEMO_SCRIPT ?= script/demo/VigiliaMultiAgentSettlementDemo.s.sol:VigiliaMultiAgentSettlementDemo
 DEMO_SCRIPT ?= script/demo/VigiliaJsonApiSmokeDemo.s.sol:VigiliaJsonApiSmokeDemo
 CANARY_SCRIPT ?= script/demo/VigiliaAgentCanary.s.sol:VigiliaAgentCanary
+MULTI_SETTLEMENT_EVIDENCE_COMPLETE_URL ?= https://httpbin.org/base64/eyJmYWN0cyI6InJlcG9fZXhpc3RzPXRydWU7IHJlYWRtZV9zZXR1cD10cnVlOyBkZXBsb3ltZW50X2FkZHJlc3NfcHJlc2VudD10cnVlOyBkZW1vX3VybF9wcmVzZW50PXRydWU7IHRlc3RzX3Bhc3NlZD10cnVlIn0=
+MULTI_SETTLEMENT_EVIDENCE_INCOMPLETE_URL ?= https://httpbin.org/base64/eyJmYWN0cyI6InJlcG9fZXhpc3RzPXRydWU7IHJlYWRtZV9zZXR1cD10cnVlOyBkZXBsb3ltZW50X2FkZHJlc3NfcHJlc2VudD1mYWxzZTsgZGVtb191cmxfcHJlc2VudD1mYWxzZTsgdGVzdHNfcGFzc2VkPWZhbHNlIn0=
+MULTI_SETTLEMENT_EVIDENCE_NEEDS_REVIEW_URL ?= https://httpbin.org/base64/eyJmYWN0cyI6InJlcG9fZXhpc3RzPXRydWU7IHJlYWRtZV9zZXR1cD10cnVlOyBkZXBsb3ltZW50X2FkZHJlc3NfcHJlc2VudD11bmNsZWFyOyBkZW1vX3VybF9wcmVzZW50PXRydWU7IHRlc3RzX3Bhc3NlZD11bmtub3duIn0=
+MULTI_SETTLEMENT_EVIDENCE_MALFORMED_URL ?= https://httpbin.org/base64/eyJzdGF0dXMiOiJ1bmtub3duIn0=
+MULTI_SETTLEMENT_GAS_ESTIMATE_MULTIPLIER ?= 2000
+MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER ?= 2000
 GAS_ESTIMATE_MULTIPLIER ?= 200
 DEMO_GAS_ESTIMATE_MULTIPLIER ?= 200
 DEMO_GAS_LIMIT ?= 10000000
+DEMO_CALL_GAS_LIMIT ?= 10000000
 
 .PHONY: help fmt build test check env-check account balance platform-code platform-deposit platform-check \
 	deploy-somnia deploy-somnia-dry-run show-deployment verify-somnia-escrow verify-somnia-json-verifier verify-somnia-verifier \
@@ -19,7 +29,20 @@ DEMO_GAS_LIMIT ?= 10000000
 	demo-claim-task demo-retry-verification \
 	multi-agent-deploy-dry-run multi-agent-deploy-somnia multi-agent-canary-json \
 	multi-agent-canary-llm-inference multi-agent-canary-llm-parse multi-agent-canary-inspect \
-	multi-agent-deposit-json multi-agent-deposit-llm-inference multi-agent-deposit-llm-parse require-env
+	multi-agent-deposit-json multi-agent-deposit-llm-inference multi-agent-deposit-llm-parse \
+	multi-settlement-env-check multi-settlement-deploy-dry-run multi-settlement-deploy-somnia \
+	multi-settlement-enrich-artifact multi-settlement-show-deployment multi-settlement-deployment-addresses \
+	multi-settlement-verifier-deposit multi-settlement-verify-verifier multi-settlement-verify-escrow \
+	multi-settlement-demo-create-task multi-settlement-demo-fund-task multi-settlement-demo-submit-complete \
+	multi-settlement-demo-submit-incomplete multi-settlement-demo-submit-needs-review \
+	multi-settlement-demo-submit-malformed multi-settlement-demo-inspect-task multi-settlement-demo-approve-task \
+	multi-settlement-demo-claim-task multi-settlement-demo-retry-verification \
+	multi-settlement-demo-continue-llm-verification multi-agent-demo-create-task \
+	multi-agent-demo-create-task-immediate-claim multi-agent-demo-create-task-client-approval \
+	multi-agent-demo-fund-task multi-agent-demo-submit-facts-complete multi-agent-demo-submit-facts-incomplete \
+	multi-agent-demo-submit-facts-needs-review multi-agent-demo-submit-facts-malformed \
+	multi-agent-demo-continue-llm-verification multi-agent-demo-inspect-task multi-agent-demo-approve-task \
+	multi-agent-demo-claim-task multi-agent-demo-retry-verification require-env
 
 help:
 	@echo "Vigilia Protocol commands"
@@ -69,6 +92,21 @@ help:
 	@echo "  make multi-agent-deposit-json    Print JSON canary deposit"
 	@echo "  make multi-agent-deposit-llm-inference Print LLM Inference canary deposit"
 	@echo "  make multi-agent-deposit-llm-parse Print LLM Parse Website canary deposit"
+	@echo ""
+	@echo "v0.2.2 two-agent settlement:"
+	@echo "  make multi-settlement-env-check  Check v0.2.2 settlement env vars"
+	@echo "  make multi-settlement-deploy-dry-run Simulate fresh settlement deployment"
+	@echo "  make multi-settlement-deploy-somnia Broadcast fresh settlement deployment"
+	@echo "  make multi-settlement-show-deployment Print settlement artifact"
+	@echo "  make multi-settlement-verify-verifier Verify new VigiliaMultiAgentVerifier"
+	@echo "  make multi-settlement-verify-escrow Verify new VigiliaEscrow"
+	@echo "  make multi-settlement-demo-create-task Create settlement demo task"
+	@echo "  make multi-settlement-demo-fund-task Fund DEMO_TASK_ID on settlement escrow"
+	@echo "  make multi-settlement-demo-submit-complete Submit Complete evidence URL"
+	@echo "  make multi-settlement-demo-continue-llm-verification Continue LLM stage if automatic callback continuation was unavailable"
+	@echo "  make multi-settlement-demo-inspect-task Inspect DEMO_TASK_ID"
+	@echo "  make multi-settlement-demo-approve-task Approve DEMO_TASK_ID"
+	@echo "  make multi-settlement-demo-claim-task Claim DEMO_TASK_ID"
 
 fmt:
 	forge fmt
@@ -80,7 +118,9 @@ test:
 	forge test -vvv
 
 coverage:
-	forge coverage --no-match-coverage script --exclude-tests -vvv
+	@# VigiliaMultiAgentVerifier requires production via_ir; Foundry coverage disables that and hits solc stack limits.
+	@# Full multi-agent behavior is covered by `forge test`; this target reports coverage for the remaining core contracts.
+	forge coverage --ir-minimum --exclude-tests --skip VigiliaMultiAgentVerifier --skip script --no-match-coverage "(^script/|Deploy|Demo|Smoke|Canary)" -vvv
 
 check:
 	forge fmt --check
@@ -276,3 +316,133 @@ multi-agent-deposit-llm-inference:
 multi-agent-deposit-llm-parse:
 	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_VERIFIER"
 	CANARY_ACTION=deposit CANARY_AGENT_KIND=llm-parse-website forge script $(CANARY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) -vvvv
+
+multi-settlement-env-check:
+	@missing=0; \
+	for var in DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL SOMNIA_CHAIN_ID SOMNIA_AGENT_PLATFORM SOMNIA_JSON_API_AGENT_ID SOMNIA_LLM_INFERENCE_AGENT_ID AGENT_SUBCOMMITTEE_SIZE; do \
+		if [[ -z "$${!var}" ]]; then \
+			echo "MISSING $$var"; \
+			missing=1; \
+		else \
+			echo "OK $$var"; \
+		fi; \
+	done; \
+	exit $$missing
+
+multi-settlement-deploy-dry-run:
+	@$(MAKE) --no-print-directory multi-settlement-env-check
+	WRITE_DEPLOYMENT_ARTIFACT=false forge script $(MULTI_SETTLEMENT_DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_GAS_ESTIMATE_MULTIPLIER) -vvvv
+
+multi-settlement-deploy-somnia:
+	@$(MAKE) --no-print-directory multi-settlement-env-check
+	forge script $(MULTI_SETTLEMENT_DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
+	@$(MAKE) --no-print-directory multi-settlement-enrich-artifact
+
+multi-settlement-enrich-artifact:
+	@if command -v jq >/dev/null 2>&1 && [[ -f "broadcast/DeployVigiliaMultiAgentSettlement.s.sol/50312/run-latest.json" && -f "$(MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT)" ]]; then \
+		VERIFIER_TX=$$(jq -r '.transactions[] | select(.contractName=="VigiliaMultiAgentVerifier") | .hash' broadcast/DeployVigiliaMultiAgentSettlement.s.sol/50312/run-latest.json | head -1); \
+		ESCROW_TX=$$(jq -r '.transactions[] | select(.contractName=="VigiliaEscrow") | .hash' broadcast/DeployVigiliaMultiAgentSettlement.s.sol/50312/run-latest.json | head -1); \
+		BIND_TX=$$(jq -r '.transactions[] | select(.function=="bindEscrow(address)") | .hash' broadcast/DeployVigiliaMultiAgentSettlement.s.sol/50312/run-latest.json | head -1); \
+		tmp=$$(mktemp); \
+		jq --arg v "$$VERIFIER_TX" --arg e "$$ESCROW_TX" --arg b "$$BIND_TX" \
+			'. + {vigiliaMultiAgentVerifierTransactionHash: $$v, vigiliaEscrowTransactionHash: $$e, bindTransactionHash: $$b}' \
+			"$(MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT)" > "$$tmp"; \
+		mv "$$tmp" "$(MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT)"; \
+		echo "Updated $(MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT) with broadcast tx hashes"; \
+	else \
+		echo "Skipping tx-hash enrichment; need jq, broadcast trace, and $(MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT)"; \
+	fi
+
+multi-settlement-show-deployment:
+	@if [[ -f "$(MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT)" ]]; then \
+		cat "$(MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT)"; \
+	else \
+		echo "Deployment artifact not found: $(MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT)"; \
+		exit 1; \
+	fi
+
+multi-settlement-deployment-addresses:
+	@if [[ -n "$$VIGILIA_MULTI_AGENT_ESCROW" ]]; then echo "VIGILIA_MULTI_AGENT_ESCROW=$$VIGILIA_MULTI_AGENT_ESCROW"; fi
+	@if [[ -n "$$VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER" ]]; then echo "VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER=$$VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER"; fi
+	@if command -v jq >/dev/null 2>&1 && [[ -f "$(MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT)" ]]; then \
+		jq -r '"artifact=" + input_filename, "vigiliaEscrow=" + .vigiliaEscrow, "vigiliaMultiAgentVerifier=" + .vigiliaMultiAgentVerifier, "deploymentName=" + .deploymentName, "version=" + .version, "enabledSettlementAgentTypes=" + .enabledSettlementAgentTypes' "$(MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT)"; \
+	elif [[ -z "$$VIGILIA_MULTI_AGENT_ESCROW" || -z "$$VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER" ]]; then \
+		echo "Set VIGILIA_MULTI_AGENT_ESCROW and VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER or install jq to read $(MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT)"; \
+		exit 1; \
+	fi
+
+multi-settlement-verifier-deposit:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER"
+	@cast call "$$VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER" "minimumRequestDepositForWorkflow(uint8)(uint256)" 3 --rpc-url "$$SOMNIA_RPC_URL"
+
+multi-settlement-verify-verifier:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_CHAIN_ID SOMNIA_BLOCKSCOUT_API SOMNIA_AGENT_PLATFORM SOMNIA_JSON_API_AGENT_ID SOMNIA_LLM_INFERENCE_AGENT_ID AGENT_SUBCOMMITTEE_SIZE JSON_API_PRICE_PER_VALIDATOR_WEI LLM_INFERENCE_PRICE_PER_VALIDATOR_WEI LLM_PARSE_PRICE_PER_VALIDATOR_WEI SOMNIA_VERDICT_SELECTOR VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER"
+	@DEPLOYER=$${DEPLOYER_ADDRESS:-$$(cast wallet address --private-key "$$DEPLOYER_PRIVATE_KEY")}; \
+	LLM_PARSE_ID=$${SOMNIA_LLM_PARSE_WEBSITE_AGENT_ID:-$$SOMNIA_LLM_WEB_AGENT_ID}; \
+	ARGS=$$(cast abi-encode "constructor((address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,string,bool))" "($$SOMNIA_AGENT_PLATFORM,$$DEPLOYER,$$SOMNIA_JSON_API_AGENT_ID,$$SOMNIA_LLM_INFERENCE_AGENT_ID,$$LLM_PARSE_ID,$$AGENT_SUBCOMMITTEE_SIZE,$$JSON_API_PRICE_PER_VALIDATOR_WEI,$$LLM_INFERENCE_PRICE_PER_VALIDATOR_WEI,$$LLM_PARSE_PRICE_PER_VALIDATOR_WEI,$$SOMNIA_VERDICT_SELECTOR,true)"); \
+	forge verify-contract "$$VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER" src/VigiliaMultiAgentVerifier.sol:VigiliaMultiAgentVerifier --chain-id "$$SOMNIA_CHAIN_ID" --verifier blockscout --verifier-url "$$SOMNIA_BLOCKSCOUT_API" --constructor-args "$$ARGS"
+
+multi-settlement-verify-escrow:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_CHAIN_ID SOMNIA_BLOCKSCOUT_API VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER"
+	@ARGS=$$(cast abi-encode "constructor(address)" "$$VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER"); \
+	forge verify-contract "$$VIGILIA_MULTI_AGENT_ESCROW" src/VigiliaEscrow.sol:VigiliaEscrow --chain-id "$$SOMNIA_CHAIN_ID" --verifier blockscout --verifier-url "$$SOMNIA_BLOCKSCOUT_API" --constructor-args "$$ARGS"
+
+multi-settlement-demo-create-task:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_AMOUNT_WEI DEMO_REVIEW_WINDOW"
+	DEMO_ACTION=create forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
+
+multi-settlement-demo-fund-task:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
+	DEMO_ACTION=fund forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
+
+multi-settlement-demo-submit-complete:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
+	VIGILIA_EVIDENCE_JSON_URL=$${VIGILIA_EVIDENCE_JSON_URL:-$(MULTI_SETTLEMENT_EVIDENCE_COMPLETE_URL)} DEMO_ACTION=submit forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy --skip-simulation -vvvv
+
+multi-settlement-demo-submit-incomplete:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
+	VIGILIA_EVIDENCE_JSON_URL=$${VIGILIA_EVIDENCE_JSON_URL:-$(MULTI_SETTLEMENT_EVIDENCE_INCOMPLETE_URL)} DEMO_ACTION=submit forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy --skip-simulation -vvvv
+
+multi-settlement-demo-submit-needs-review:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
+	VIGILIA_EVIDENCE_JSON_URL=$${VIGILIA_EVIDENCE_JSON_URL:-$(MULTI_SETTLEMENT_EVIDENCE_NEEDS_REVIEW_URL)} DEMO_ACTION=submit forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy --skip-simulation -vvvv
+
+multi-settlement-demo-submit-malformed:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
+	VIGILIA_EVIDENCE_JSON_URL=$${VIGILIA_EVIDENCE_JSON_URL:-$(MULTI_SETTLEMENT_EVIDENCE_MALFORMED_URL)} DEMO_ACTION=submit forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy --skip-simulation -vvvv
+
+multi-settlement-demo-inspect-task:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
+	DEMO_ACTION=inspect forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
+
+multi-settlement-demo-approve-task:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
+	DEMO_ACTION=approve forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
+
+multi-settlement-demo-claim-task:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
+	DEMO_ACTION=claim forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
+
+multi-settlement-demo-retry-verification:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
+	DEMO_ACTION=retry forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy --skip-simulation -vvvv
+
+multi-settlement-demo-continue-llm-verification:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_PARENT_REQUEST_ID"
+	DEMO_ACTION=continue-llm forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy --skip-simulation -vvvv
+
+multi-agent-demo-create-task: multi-settlement-demo-create-task
+multi-agent-demo-create-task-immediate-claim:
+	DEMO_CLAIM_POLICY=2 $(MAKE) --no-print-directory multi-settlement-demo-create-task
+multi-agent-demo-create-task-client-approval:
+	DEMO_CLAIM_POLICY=0 $(MAKE) --no-print-directory multi-settlement-demo-create-task
+multi-agent-demo-fund-task: multi-settlement-demo-fund-task
+multi-agent-demo-submit-facts-complete: multi-settlement-demo-submit-complete
+multi-agent-demo-submit-facts-incomplete: multi-settlement-demo-submit-incomplete
+multi-agent-demo-submit-facts-needs-review: multi-settlement-demo-submit-needs-review
+multi-agent-demo-submit-facts-malformed: multi-settlement-demo-submit-malformed
+multi-agent-demo-continue-llm-verification: multi-settlement-demo-continue-llm-verification
+multi-agent-demo-inspect-task: multi-settlement-demo-inspect-task
+multi-agent-demo-approve-task: multi-settlement-demo-approve-task
+multi-agent-demo-claim-task: multi-settlement-demo-claim-task
+multi-agent-demo-retry-verification: multi-settlement-demo-retry-verification
