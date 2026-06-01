@@ -1,251 +1,214 @@
-# Grant Round and Finalist Selection Extension
+# Grant Round and Finalist Selection
 
 ## Purpose
 
-This note captures a future Vigilia extension for grant programs, hackathons, bounty rounds, and accelerator cohorts where many builders submit work to one funded opportunity and judges manually select a limited number of winners or finalists.
+`VigiliaGrantRound` extends Vigilia from fixed-work escrow into transparent grant, bounty, hackathon, and accelerator rounds.
 
-This is **additional scope** beyond the current v0.1/v0.2 escrow and agent-verification work. It should not block the current path of proving JSON API + LLM Inference verification and settlement.
-
-## Current Escrow Limitation
-
-The current `VigiliaEscrow` model is task-scoped and contractor-scoped:
+The existing hardened v0.2.3 product claim remains unchanged:
 
 ```text
-one task
-→ one client
-→ one contractor
-→ one active submission
-→ one escrow amount
-→ one verification result
-→ approve / claim / resubmit / dispute
+Vigilia proves a real two-agent settlement flow:
+JSON API facts + LLM Inference bounded verdict + escrow policy.
 ```
 
-This works well for fixed milestones and freelance-style tasks, but it does **not** natively model:
+GrantRound uses the same safety philosophy, but it solves a different product shape:
 
 ```text
-one grant round
-→ many applicants
-→ many submissions
-→ agent-assisted screening
-→ judges select top N finalists
-→ finalists claim prizes
+many applicants
+-> agent-assisted screening
+-> sponsor/judge finalist selection
+-> finalist prize claims
+-> sponsor refund of unallocated funds
 ```
 
-The current workaround is to create one escrow task per applicant, but that is not ideal for grant programs because it can overfund non-finalists and does not provide a clean round-level finalist-selection model.
+## Why GrantRound Is Separate From Escrow
 
-## Proposed Product Extension
-
-Add a separate grant/bounty module rather than bloating the existing escrow contract.
-
-Possible names:
+`VigiliaEscrow` is intentionally task-scoped:
 
 ```text
-VigiliaGrantRound
-VigiliaBountyBoard
-VigiliaGrantProgram
+one client
+one contractor
+one funded task
+one active submission
+one verifier verdict
+one payout path
 ```
 
-The module should represent a funded round with many submissions and a limited number of winners.
+That model is right for fixed milestones and contractor settlement. It is not the right primitive for a grant round where many builders apply to one pool and only a subset become winners.
 
-## Target Flow
+`VigiliaGrantRound` is round-scoped:
 
 ```text
-Sponsor creates grant round
-→ sponsor funds prize pool
-→ many builders submit evidence
-→ agents verify each submission
-→ submissions receive Complete / NeedsReview / Incomplete / VerificationFailed
-→ judges review eligible submissions manually
-→ judges select up to N finalists
-→ finalists claim prizes
-→ unallocated funds can be refunded or rolled over
+one sponsor
+one judge
+one funded prize pool
+many applicants
+many applications
+agent screening metadata per application
+manual finalist selection
+pull-based prize claims
+pull-based sponsor refunds
 ```
 
-This model is useful for:
+Keeping the modules separate avoids overloading the hardened escrow state machine and preserves the final product claim around the proven v0.2.3 settlement path.
 
-- hackathon prize tracks;
-- ecosystem grants;
-- accelerator milestones;
-- public bounty boards;
-- AI-agent work competitions;
-- reviewer-assisted builder programs.
+## Product Flow
 
-## Agent Role
+1. Sponsor creates a round with prize amount, maximum winners, deadlines, requirements, and a per-round `screeningMode`.
+2. Sponsor funds the exact full pool: `prizeAmount * maxWinners`.
+3. Builders submit public evidence before the application deadline.
+4. Somnia agents screen each application and store bounded metadata:
+   - `Complete`
+   - `NeedsReview`
+   - `Incomplete`
+   - `VerificationFailed`
+5. Sponsor or judge reviews the agent-assisted board.
+6. Sponsor or judge selects finalists after the application deadline.
+7. Sponsor or judge finalizes the round.
+8. Selected finalists claim exact equal prizes.
+9. Sponsor refunds unallocated funds without touching selected-but-unclaimed prize reservations.
 
-Agents should **screen and structure evidence**, not choose winners autonomously in the first version.
+Agents reduce review load. Judges choose winners. The contract enforces winner caps, reservations, claims, and refunds.
 
-Recommended policy:
+## Screening Modes
 
-```text
-Complete       → eligible for judge finalist review
-NeedsReview    → visible to judges, flagged for manual review
-Incomplete     → not eligible unless judge explicitly overrides
-VerificationFailed → retry / resubmit / manual review path
-```
-
-Agents help reduce reviewer load, but judges/program operators make final winner decisions.
-
-## Suggested Data Model
-
-### Round
+GrantRound is not manual-only. Each round is configured for an agent-based screening mode.
 
 ```solidity
-struct Round {
-    address sponsor;
-    address judge;
-    uint256 totalPool;
-    uint256 prizeAmount;
-    uint256 maxWinners;
-    uint64 submissionDeadline;
-    uint64 reviewDeadline;
-    string requirementsURI;
-    RoundState state;
+enum ScreeningMode {
+    TwoAgent,
+    ThreeAgent
 }
 ```
 
-### Application
+### TwoAgent
 
-```solidity
-struct Application {
-    uint256 roundId;
-    address applicant;
-    string evidenceURI;
-    bytes32 evidenceHash;
-    Verdict agentVerdict;
-    uint256 requestId;
-    bool finalist;
-    bool claimed;
-}
+Default live mode until Website Parse is proven reliable against real HTML.
+
+```text
+JSON API facts
+-> LLM Inference bounded eligibility verdict
+-> judge-selected finalists
+-> finalist claims
 ```
+
+This reuses the proven v0.2.3 architecture without reusing the deployed v0.2.3 verifier instance. A future GrantRound deployment should use a fresh verifier bound to the GrantRound receiver.
+
+The hardened v0.2.3 verifier is already part of the fixed-work escrow proof and should not be reused for GrantRound. `VigiliaMultiAgentVerifier` binds to one receiver; GrantRound has a different receiver contract and interprets `taskId` as `roundId` and `submissionId` as `applicationId`.
+
+### ThreeAgent
+
+Preferred future mode after Website Parse succeeds reliably against real HTML.
+
+```text
+JSON API facts
+-> Website Parse README/docs/demo extraction
+-> LLM Inference bounded eligibility verdict and summary
+-> judge-selected finalists
+-> finalist claims
+```
+
+The current contract stores `ThreeAgent` at the round level, but request-time support should remain gated until the verifier exposes a proven `JsonFactsAndWebsiteToLlmVerdict` workflow. Do not claim this mode is live until there is a real Website Parse proof.
+
+### Manual Fallback / Recovery
+
+Manual screening is deliberately not a round mode.
+
+Sponsor or judge can call `recordManualScreening` only as fallback, recovery, or judge override. It cannot transfer funds, select finalists, bypass `maxWinners`, or bypass finalization.
+
+## State Machine
 
 ### RoundState
 
-```solidity
-enum RoundState {
-    Unknown,
-    Created,
-    Funded,
-    Open,
-    Reviewing,
-    FinalistsSelected,
-    Settled,
-    Cancelled
-}
+```text
+None
+Created     sponsor created the round, not funded
+Open        sponsor funded the exact full pool, applications accepted
+Review      finalist selection has started
+Finalized   claims and unallocated refunds are available
+Cancelled   safely cancelled before applications/finalists make cancellation unsafe
 ```
 
-## Minimal Function Surface
-
-```solidity
-function createRound(
-    address judge,
-    uint256 prizeAmount,
-    uint256 maxWinners,
-    uint64 submissionDeadline,
-    uint64 reviewDeadline,
-    string calldata requirementsURI
-) external returns (uint256 roundId);
-
-function fundRound(uint256 roundId) external payable;
-
-function submitApplication(
-    uint256 roundId,
-    string calldata evidenceURI,
-    bytes32 evidenceHash
-) external payable returns (uint256 applicationId);
-
-function retryApplicationVerification(uint256 applicationId) external payable;
-
-function selectFinalists(uint256 roundId, uint256[] calldata applicationIds) external;
-
-function claimPrize(uint256 applicationId) external;
-
-function refundUnallocated(uint256 roundId) external;
-```
-
-## Safety Rules
-
-- Only the applicant can claim their own prize.
-- Only the configured judge/sponsor can select finalists.
-- `maxWinners` must be enforced.
-- Total selected payout must never exceed the funded prize pool.
-- Agent output must never directly transfer funds.
-- Agent output should only determine eligibility/review status.
-- `VerificationFailed` must not become an automatic rejection.
-- Judges should be able to manually include or exclude submissions, depending on round policy.
-- Unallocated funds should be recoverable after the round closes.
-
-## Integration With Existing Vigilia Components
-
-The grant module should reuse the same verification concepts:
+### ApplicationStatus
 
 ```text
-Application evidenceURI
-→ Vigilia verifier/coordinator
-→ bounded verdict
-→ application verification state
-→ judge finalist selection
-→ prize claim
+None
+Submitted
+ScreeningRequested
+Complete
+NeedsReview
+Incomplete
+VerificationFailed
+Selected
+Rejected
+Claimed
 ```
 
-It can integrate with the v0.2 multi-agent direction:
+`VerificationFailed` is infrastructure failure, not applicant rejection. It remains reviewable.
+
+## Selection Policy
+
+Normal finalist selection can include:
 
 ```text
-JSON API Agent → public structured facts
-LLM Inference Agent → bounded eligibility verdict
-LLM Parse Website Agent → optional future README/docs/demo extraction
+Submitted
+ScreeningRequested
+Complete
+NeedsReview
+VerificationFailed
 ```
 
-## Recommended Build Order
-
-Do **not** build this before the current v0.2 settlement path is stable.
-
-Suggested roadmap:
+Normal finalist selection cannot include:
 
 ```text
-1. Finish v0.2.1 JSON API + LLM Inference settlement flow.
-2. Document a stable evidence schema.
-3. Add grant-round spec/tests.
-4. Implement minimal GrantRound/BountyBoard contract.
-5. Add frontend/demo flow for one round with several applicants.
-6. Later add Data Streams records for round/applicant/finalist history.
+Incomplete
+Rejected
+Selected
+Claimed
+Missing application
+Application from another round
 ```
 
-## MVP Demo Example
+There is no automatic winner selection from an agent verdict. A `Complete` result is only screening metadata.
 
-```text
-Round: Somnia Agentathon Mini-Grant
-Prize: 100 STT each
-Max winners: 3
-Requirements:
-- public GitHub repo
-- README/setup docs
-- deployed contract address
-- demo transaction or video
+## Safety Invariants
 
-Builders submit evidence.
-Agents verify each submission.
-Judges review Complete and NeedsReview submissions.
-Judges select 3 finalists.
-Finalists claim prizes.
-```
+- No global owner or admin can move funds.
+- Sponsor and judge authority is scoped to a round.
+- Agent callbacks never transfer funds.
+- Agent callbacks never select winners.
+- Unknown verdicts fail closed.
+- Stale callbacks are ignored and emitted.
+- Exact full-pool funding is required for MVP.
+- Selected allocation is always `selectedCount * prizeAmount`.
+- Sponsor refunds only unallocated funds.
+- Selected-but-unclaimed prizes remain reserved.
+- Applicants claim with pull payments.
+- Sponsor refunds use pull withdrawals.
+- Double selection and double claim are blocked.
 
-## Product Positioning
+## MVP Scope
 
-This extension would make Vigilia stronger for real hackathon/grant operations:
+Implemented now:
 
-```text
-Vigilia is not only fixed-task escrow.
-It can become an agent-assisted grant operations layer where programs fund rounds, agents screen public evidence, and judges select winners with a transparent on-chain audit trail.
-```
+- native-token-only prize pool;
+- exact full-pool funding;
+- one application per address per round;
+- two-agent workflow request path;
+- `ThreeAgent` round configuration with request-time gate until verifier support exists;
+- verifier receiver compatibility;
+- manual screening fallback;
+- judge/sponsor finalist selection;
+- finalist claims;
+- unallocated sponsor refunds;
+- safe cancellation before applications make cancellation unsafe.
 
-## Status
+Future work:
 
-This is a **future extension / product design note**. It is not implemented in the current deployed contracts.
-
-Current deployed contracts remain:
-
-```text
-v0.1.0: JSON API Request escrow smoke flow
-v0.2.0: multi-agent canary verifier foundation
-```
-
+- fresh GrantRound-bound multi-agent verifier deployment;
+- proven Website Parse workflow before making `ThreeAgent` the live default;
+- frontend review board;
+- Data Streams publisher for round/application/finalist history;
+- optional tiered prizes;
+- optional application evidence updates;
+- optional explicit override path for selecting `Incomplete` applications.

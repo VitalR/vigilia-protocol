@@ -8,6 +8,8 @@ DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaSystem.s.sol:DeployVigiliaSystem
 MULTI_AGENT_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaMultiAgentVerifier.s.sol:DeployVigiliaMultiAgentVerifier
 MULTI_SETTLEMENT_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaMultiAgentSettlement.s.sol:DeployVigiliaMultiAgentSettlement
 MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312-two-agent-settlement-hardened.json
+GRANT_ROUND_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaGrantRound.s.sol:DeployVigiliaGrantRound
+GRANT_ROUND_DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312-grant-round.json
 MULTI_SETTLEMENT_DEMO_SCRIPT ?= script/demo/VigiliaMultiAgentSettlementDemo.s.sol:VigiliaMultiAgentSettlementDemo
 DEMO_SCRIPT ?= script/demo/VigiliaJsonApiSmokeDemo.s.sol:VigiliaJsonApiSmokeDemo
 CANARY_SCRIPT ?= script/demo/VigiliaAgentCanary.s.sol:VigiliaAgentCanary
@@ -42,7 +44,9 @@ DEMO_CALL_GAS_LIMIT ?= 10000000
 	multi-agent-demo-fund-task multi-agent-demo-submit-facts-complete multi-agent-demo-submit-facts-incomplete \
 	multi-agent-demo-submit-facts-needs-review multi-agent-demo-submit-facts-malformed \
 	multi-agent-demo-continue-llm-verification multi-agent-demo-inspect-task multi-agent-demo-approve-task \
-	multi-agent-demo-claim-task multi-agent-demo-retry-verification require-env
+	multi-agent-demo-claim-task multi-agent-demo-retry-verification \
+	grant-round-env-check grant-round-deploy-dry-run grant-round-deploy-somnia \
+	grant-round-show-deployment grant-round-verifier-deposit require-env
 
 help:
 	@echo "Vigilia Protocol commands"
@@ -67,6 +71,8 @@ help:
 	@echo "  make deploy-somnia               Broadcast deployment and write $(DEPLOYMENT_ARTIFACT)"
 	@echo "  make multi-agent-deploy-dry-run  Simulate v0.2.0 canary verifier deployment"
 	@echo "  make multi-agent-deploy-somnia   Broadcast v0.2.0 canary verifier deployment"
+	@echo "  make grant-round-deploy-dry-run  Simulate GrantRound + fresh verifier deployment"
+	@echo "  make grant-round-deploy-somnia   Broadcast GrantRound + fresh verifier deployment"
 	@echo "  make show-deployment             Print deployment artifact"
 	@echo ""
 	@echo "Verification:"
@@ -107,6 +113,11 @@ help:
 	@echo "  make multi-settlement-demo-inspect-task Inspect DEMO_TASK_ID"
 	@echo "  make multi-settlement-demo-approve-task Approve DEMO_TASK_ID"
 	@echo "  make multi-settlement-demo-claim-task Claim DEMO_TASK_ID"
+	@echo ""
+	@echo "GrantRound:"
+	@echo "  make grant-round-env-check       Check GrantRound deployment env vars"
+	@echo "  make grant-round-show-deployment Print GrantRound deployment artifact"
+	@echo "  make grant-round-verifier-deposit Print GrantRound two-agent workflow deposit"
 
 fmt:
 	forge fmt
@@ -118,9 +129,14 @@ test:
 	forge test -vvv
 
 coverage:
-	@# VigiliaMultiAgentVerifier requires production via_ir; Foundry coverage disables that and hits solc stack limits.
-	@# Full multi-agent behavior is covered by `forge test`; this target reports coverage for the remaining core contracts.
-	forge coverage --ir-minimum --exclude-tests --skip VigiliaMultiAgentVerifier --skip script --no-match-coverage "(^script/|Deploy|Demo|Smoke|Canary)" -vvv
+	@# VigiliaMultiAgentVerifier requires production via_ir; Foundry coverage uses --ir-minimum and still hits solc stack limits.
+	@# Skip every test file that imports it so coverage compiles only the remaining core contracts.
+	@# Full multi-agent behavior is covered by `forge test`.
+	forge coverage --ir-minimum --exclude-tests \
+		--skip VigiliaMultiAgentVerifier \
+		--skip VigiliaGrantRoundVerifierIntegration \
+		--skip script \
+		--no-match-coverage "(^script/|Deploy|Demo|Smoke|Canary)" -vvv
 
 check:
 	forge fmt --check
@@ -370,6 +386,38 @@ multi-settlement-deployment-addresses:
 		echo "Set VIGILIA_MULTI_AGENT_ESCROW and VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER or install jq to read $(MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT)"; \
 		exit 1; \
 	fi
+
+grant-round-env-check:
+	@missing=0; \
+	for var in DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL SOMNIA_CHAIN_ID SOMNIA_AGENT_PLATFORM SOMNIA_JSON_API_AGENT_ID SOMNIA_LLM_INFERENCE_AGENT_ID AGENT_SUBCOMMITTEE_SIZE; do \
+		if [[ -z "$${!var}" ]]; then \
+			echo "MISSING $$var"; \
+			missing=1; \
+		else \
+			echo "OK $$var"; \
+		fi; \
+	done; \
+	exit $$missing
+
+grant-round-deploy-dry-run:
+	@$(MAKE) --no-print-directory grant-round-env-check
+	WRITE_DEPLOYMENT_ARTIFACT=false forge script $(GRANT_ROUND_DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_GAS_ESTIMATE_MULTIPLIER) -vvvv
+
+grant-round-deploy-somnia:
+	@$(MAKE) --no-print-directory grant-round-env-check
+	forge script $(GRANT_ROUND_DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
+
+grant-round-show-deployment:
+	@if [[ -f "$(GRANT_ROUND_DEPLOYMENT_ARTIFACT)" ]]; then \
+		cat "$(GRANT_ROUND_DEPLOYMENT_ARTIFACT)"; \
+	else \
+		echo "Deployment artifact not found: $(GRANT_ROUND_DEPLOYMENT_ARTIFACT)"; \
+		exit 1; \
+	fi
+
+grant-round-verifier-deposit:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_GRANT_ROUND_VERIFIER"
+	@cast call "$$VIGILIA_GRANT_ROUND_VERIFIER" "minimumRequestDepositForWorkflow(uint8)(uint256)" 3 --rpc-url "$$SOMNIA_RPC_URL"
 
 multi-settlement-verifier-deposit:
 	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER"
