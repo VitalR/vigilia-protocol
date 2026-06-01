@@ -48,8 +48,8 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         bool enableLlmInferenceSettlement;
     }
 
-    /// @notice Emitted when this verifier is permanently bound to an escrow contract.
-    /// @param escrow Escrow contract allowed to request settlement verification and receive forwarded verdicts.
+    /// @notice Emitted when this verifier is permanently bound to a settlement receiver contract.
+    /// @param escrow Settlement receiver allowed to request settlement verification and receive forwarded verdicts.
     event EscrowBound(address indexed escrow);
 
     /// @notice Emitted once per configured agent kind at deployment.
@@ -117,7 +117,8 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
     /// @param submissionId Submission to verify.
     /// @param kind Agent kind used for settlement.
     /// @param agentId Somnia Agent identifier.
-    /// @param deposit Native-token amount forwarded to the platform.
+    /// @param deposit Native-token amount forwarded with this request. For `JsonFactsToLlmVerdict` this is the total
+    /// workflow deposit: the JSON stage platform value plus the LLM stage budget retained in `prepaidBudget`.
     /// @param evidenceURI Public evidence URI.
     event MultiAgentVerificationRequested(
         bytes32 indexed vigiliaRequestId,
@@ -223,6 +224,17 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
     /// @param amount Native-token amount received.
     event SomniaRebateReceived(address indexed sender, uint256 amount);
 
+    /// @notice Emitted when unused prepaid LLM budget is credited after JSON-stage failure in a two-agent workflow.
+    /// @param requestId Platform request identifier whose unused LLM budget was credited.
+    /// @param requester Account that paid the workflow deposit and receives the credit.
+    /// @param amount Native-token amount credited for later withdrawal.
+    event VerificationBudgetRefundCredited(uint256 indexed requestId, address indexed requester, uint256 amount);
+
+    /// @notice Emitted when a verification refund credit is withdrawn.
+    /// @param recipient Account receiving the withdrawn native tokens.
+    /// @param amount Native-token amount withdrawn.
+    event VerificationBudgetRefundWithdrawn(address indexed recipient, uint256 amount);
+
     /// @notice Reverts when a caller attempts to decode agent bytes without going through this contract.
     error DecodeOnlySelf();
     /// @notice Reverts when a required address is zero.
@@ -263,6 +275,13 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
     /// @notice Reverts when caller is not authorized for an action.
     /// @param caller Unauthorized caller.
     error Unauthorized(address caller);
+    /// @notice Reverts when an account has no pending verification refund credit.
+    /// @param account Account without pending credit.
+    error NoPendingVerificationRefund(address account);
+    /// @notice Reverts when a native-token transfer fails.
+    /// @param recipient Intended recipient.
+    /// @param amount Native-token amount that failed to transfer.
+    error TransferFailed(address recipient, uint256 amount);
 
     /// @notice Somnia Agent requester platform contract.
     ISomniaAgentRequester public immutable platform;
@@ -270,7 +289,8 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
     /// @notice Account allowed to bind this adapter to the escrow once after deployment.
     address public immutable escrowBinder;
 
-    /// @notice Escrow contract allowed to create settlement requests and receive forwarded verdicts.
+    /// @notice Escrow settlement receiver allowed to create settlement requests and receive forwarded verdicts.
+    /// @dev Future GrantRound contracts can implement `IVigiliaEscrowVerdictReceiver` and be bound here.
     address public escrow;
 
     /// @notice Agent configuration by kind.
@@ -281,6 +301,9 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
 
     /// @notice Current platform request for each task/submission pair.
     mapping(uint256 taskId => mapping(uint256 submissionId => uint256 platformRequestId)) public activePlatformRequest;
+
+    /// @notice Native-token credits from unused prepaid LLM budgets after JSON-stage failures.
+    mapping(address requester => uint256 amount) public pendingVerificationRefunds;
 
     /// @notice Creates the v0.2.0 canary-first multi-agent verifier.
     /// @param _config Deployment configuration.
@@ -326,9 +349,9 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         emit SomniaRebateReceived(msg.sender, msg.value);
     }
 
-    /// @notice Binds this verifier to exactly one escrow contract.
-    /// @dev This does not create a global admin role; escrow still owns settlement state and funds.
-    /// @param _escrow Escrow contract address.
+    /// @notice Binds this verifier to exactly one settlement receiver contract.
+    /// @dev This does not create a global admin role; the receiver still owns settlement state and funds.
+    /// @param _escrow Settlement receiver contract address implementing `IVigiliaEscrowVerdictReceiver`.
     function bindEscrow(address _escrow) external {
         if (msg.sender != escrowBinder) revert Unauthorized(msg.sender);
         if (_escrow == address(0)) revert InvalidAddress();
@@ -398,6 +421,29 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         if (!_canContinueLlm(_parentRequestId, context)) revert ContinuationUnavailable(_parentRequestId);
 
         llmRequestId = _startLlmVerdictStage(_parentRequestId, context);
+    }
+
+    /// @notice Withdraws verification refund credit to the caller.
+    function withdrawVerificationRefund() external {
+        withdrawVerificationRefundTo(payable(msg.sender));
+    }
+
+    /// @notice Withdraws verification refund credit to an explicit recipient.
+    /// @dev Credits are cleared before transfer, so a reverting recipient cannot corrupt accounting or reenter for the
+    /// same funds.
+    /// @param _recipient Native-token recipient chosen by the credited requester.
+    function withdrawVerificationRefundTo(address payable _recipient) public {
+        if (_recipient == address(0)) revert InvalidAddress();
+
+        uint256 amount = pendingVerificationRefunds[msg.sender];
+        if (amount == 0) revert NoPendingVerificationRefund(msg.sender);
+
+        pendingVerificationRefunds[msg.sender] = 0;
+
+        (bool success,) = _recipient.call{ value: amount }("");
+        if (!success) revert TransferFailed(_recipient, amount);
+
+        emit VerificationBudgetRefundWithdrawn(_recipient, amount);
     }
 
     /// @notice Creates a JSON API Request canary without touching escrow settlement.
@@ -1011,11 +1057,31 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         ISomniaAgentRequester.ResponseStatus _status,
         string memory _failureNotesURI
     ) private {
+        _creditUnusedPrepaidBudget(_requestId, _context);
+
         if (_context.isCanary) {
             emit CanaryFailed(_requestId, _context.kind, _status, _failureNotesURI);
         } else {
             _forwardVerificationFailure(_requestId, _context, _status, _failureNotesURI);
         }
+    }
+
+    /// @dev Credits unused prepaid LLM budget when a two-agent JSON facts stage fails before LLM starts.
+    function _creditUnusedPrepaidBudget(uint256 _requestId, VigiliaMultiAgentTypes.RequestContext storage _context)
+        private
+    {
+        if (
+            _context.workflow != VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict
+                || _context.stage != VigiliaAgentTypes.VerificationStage.JsonFacts || _context.prepaidBudget == 0
+        ) {
+            return;
+        }
+
+        uint256 refundAmount = _context.prepaidBudget;
+        _context.prepaidBudget = 0;
+        pendingVerificationRefunds[_context.requester] += refundAmount;
+
+        emit VerificationBudgetRefundCredited(_requestId, _context.requester, refundAmount);
     }
 
     /// @dev Forwards terminal infrastructure failure to escrow and preserves callback finality if escrow rejects it.

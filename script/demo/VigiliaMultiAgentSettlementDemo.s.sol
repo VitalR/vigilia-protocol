@@ -36,6 +36,8 @@ interface IVigiliaEscrowSettlementDemo {
 
     function claim(uint256 _taskId) external;
 
+    function claimTo(uint256 _taskId, address payable _recipient) external;
+
     function taskClaimPolicies(uint256 _taskId) external view returns (uint8 policy);
 
     function tasks(uint256 _taskId)
@@ -52,7 +54,8 @@ interface IVigiliaEscrowSettlementDemo {
             uint8 state,
             uint8 stateBeforeDispute,
             string memory requirementsURI,
-            uint64 reviewWindow
+            uint64 reviewWindow,
+            uint64 verificationTimeout
         );
 
     function submissions(uint256 _submissionId)
@@ -136,6 +139,7 @@ contract VigiliaMultiAgentSettlementDemo is Script {
         uint8 stateBeforeDispute;
         string requirementsURI;
         uint64 reviewWindow;
+        uint64 verificationTimeout;
     }
 
     struct SubmissionView {
@@ -428,10 +432,12 @@ contract VigiliaMultiAgentSettlementDemo is Script {
             task.state,
             task.stateBeforeDispute,
             task.requirementsURI,
-            task.reviewWindow
+            task.reviewWindow,
+            task.verificationTimeout
         ) =
             abi.decode(
-                data, (address, address, address, uint256, uint256, uint256, uint256, uint8, uint8, string, uint64)
+                data,
+                (address, address, address, uint256, uint256, uint256, uint256, uint8, uint8, string, uint64, uint64)
             );
     }
 

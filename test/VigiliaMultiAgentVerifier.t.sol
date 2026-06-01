@@ -70,6 +70,8 @@ contract VigiliaMultiAgentVerifierTest is Test {
         uint256 indexed taskId,
         uint256 submissionId
     );
+    event VerificationBudgetRefundCredited(uint256 indexed requestId, address indexed requester, uint256 amount);
+    event VerificationBudgetRefundWithdrawn(address indexed recipient, uint256 amount);
 
     uint256 private constant _JSON_AGENT_ID = 42;
     uint256 private constant _LLM_INFERENCE_AGENT_ID = 43;
@@ -330,7 +332,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         emit LlmVerdictContinuationRequired(1, taskId, submissionId);
         _callback(1, _FACTS);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,,,,,,, uint256 prepaidBudget,,,,, bool fulfilled) = _verifier.requests(1);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
         assertEq(prepaidBudget, _llmInferenceDeposit());
@@ -342,7 +344,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
         _callback(2, "Complete");
 
-        (,,,,,,, state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
     }
 
@@ -492,7 +494,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
         _callback(2, "Complete");
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Complete));
@@ -503,7 +505,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         _callback(1, _FACTS);
         _callback(2, "NeedsReview");
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.NeedsReview));
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.NeedsReview));
@@ -514,7 +516,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         _callback(1, _FACTS);
         _callback(2, "Incomplete");
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Incomplete));
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Incomplete));
@@ -525,7 +527,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         _callback(1, _FACTS);
         _callback(2, " \nComplete\r\n");
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Complete));
@@ -548,7 +550,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
         _callback(2, "Maybe");
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Unknown));
@@ -573,8 +575,11 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Failed, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
+        assertEq(_verifier.pendingVerificationRefunds(_contractor), _llmInferenceDeposit());
+        (,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
+        assertEq(prepaidBudget, 0);
     }
 
     function test_HandleResponse_JsonTimedOutStatusRecordsVerificationFailed() public {
@@ -582,7 +587,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
         _statusCallback(1, ISomniaAgentRequester.ResponseStatus.TimedOut);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
     }
 
@@ -591,10 +596,11 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
         _callback(1, "");
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
-        assertEq(prepaidBudget, _llmInferenceDeposit());
+        assertEq(prepaidBudget, 0);
+        assertEq(_verifier.pendingVerificationRefunds(_contractor), _llmInferenceDeposit());
         assertEq(_platform.nextRequestId(), 2);
     }
 
@@ -604,7 +610,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
         _statusCallback(2, ISomniaAgentRequester.ResponseStatus.Failed);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
     }
 
@@ -614,7 +620,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
         _statusCallback(2, ISomniaAgentRequester.ResponseStatus.TimedOut);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
     }
 
@@ -626,8 +632,86 @@ contract VigiliaMultiAgentVerifierTest is Test {
         ISomniaAgentRequester.Request memory details;
         _platform.callback(address(_verifier), 2, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
+    }
+
+    function test_HandleResponse_JsonMalformedResultCreditsUnusedLlmBudget() public {
+        (uint256 taskId,,) = _submitWork();
+
+        vm.expectEmit(true, true, false, true, address(_verifier));
+        emit VerificationBudgetRefundCredited(1, _contractor, _llmInferenceDeposit());
+
+        ISomniaAgentRequester.Response[] memory responses = _malformedResponses();
+        ISomniaAgentRequester.Request memory details;
+        _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
+        assertEq(_verifier.pendingVerificationRefunds(_contractor), _llmInferenceDeposit());
+        (,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
+        assertEq(prepaidBudget, 0);
+    }
+
+    function test_HandleResponse_LlmStageFailureDoesNotCreditUnusedLlmBudget() public {
+        (uint256 taskId,,) = _submitWork();
+        _callback(1, _FACTS);
+
+        _statusCallback(2, ISomniaAgentRequester.ResponseStatus.Failed);
+
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
+        assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
+        assertEq(_verifier.pendingVerificationRefunds(_contractor), 0);
+        (,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
+        assertEq(prepaidBudget, 0);
+    }
+
+    function test_WithdrawVerificationRefund_TransfersCreditAndClearsAccounting() public {
+        _submitWork();
+        _statusCallback(1, ISomniaAgentRequester.ResponseStatus.Failed);
+
+        address payable recipient = payable(address(0xDEAD));
+        uint256 recipientBalanceBefore = recipient.balance;
+
+        vm.expectEmit(true, false, false, true, address(_verifier));
+        emit VerificationBudgetRefundWithdrawn(recipient, _llmInferenceDeposit());
+
+        vm.prank(_contractor);
+        _verifier.withdrawVerificationRefundTo(recipient);
+
+        assertEq(_verifier.pendingVerificationRefunds(_contractor), 0);
+        assertEq(recipient.balance, recipientBalanceBefore + _llmInferenceDeposit());
+    }
+
+    function test_WithdrawVerificationRefund_ZeroRecipientReverts() public {
+        _submitWork();
+        _statusCallback(1, ISomniaAgentRequester.ResponseStatus.Failed);
+
+        vm.prank(_contractor);
+        vm.expectRevert(VigiliaMultiAgentVerifier.InvalidAddress.selector);
+        _verifier.withdrawVerificationRefundTo(payable(address(0)));
+    }
+
+    function test_WithdrawVerificationRefund_NoPendingCreditReverts() public {
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(VigiliaMultiAgentVerifier.NoPendingVerificationRefund.selector, _contractor)
+        );
+        _verifier.withdrawVerificationRefund();
+    }
+
+    function test_WithdrawVerificationRefund_CannotWithdrawTwice() public {
+        _submitWork();
+        _statusCallback(1, ISomniaAgentRequester.ResponseStatus.Failed);
+
+        vm.prank(_contractor);
+        _verifier.withdrawVerificationRefund();
+
+        vm.prank(_contractor);
+        vm.expectRevert(
+            abi.encodeWithSelector(VigiliaMultiAgentVerifier.NoPendingVerificationRefund.selector, _contractor)
+        );
+        _verifier.withdrawVerificationRefund();
     }
 
     function test_HandleResponse_StaleRequestIdCannotOverwriteActiveSubmission() public {
@@ -646,7 +730,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, oldResponses, ISomniaAgentRequester.ResponseStatus.Success, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
         (,,,,,,,,,,,,,,, bool oldFulfilled) = _verifier.requests(1);
 
@@ -657,7 +741,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         _callback(2, _FACTS);
         _callback(3, "Complete");
 
-        (,,,,,,, state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, state,,,,) = _escrow.tasks(taskId);
         (,,,,, verdict,,) = _escrow.submissions(submissionId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Complete));

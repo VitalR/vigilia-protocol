@@ -346,4 +346,73 @@ Implementation hardening after the live run:
   fund/submit actions;
 - these source/script changes have not been redeployed to the v0.2.2 live addresses.
 
+## Final pre-redeploy hardening
+
+Target release: **v0.2.3** (fresh escrow + verifier redeploy; do not upgrade live v0.2.2 in place).
+
+### Verification timeout liveness
+
+- Each task stores `verificationTimeout` (default `7 days`, bounds `60 seconds` to `30 days`, overridable via
+  `createTaskWithPolicyAndTimeout`).
+- While a task remains in `Submitted`, either the client or contractor may call `markVerificationTimedOut(taskId)`
+  once `block.timestamp > submittedAt + verificationTimeout`.
+- Result: task moves to `VerificationFailed` and emits `VerificationTimedOut`.
+- This does **not** release funds directly. Recovery paths match infrastructure failure: `retryVerification`,
+  resubmit, client `approveTask`, or `raiseDispute`.
+
+### Claim recipient hardening
+
+- `claimTo(taskId, recipient)` lets the contractor choose a payout recipient; `claim(taskId)` delegates to
+  `claimTo(taskId, msg.sender)`.
+- `recipient == address(0)` reverts. Pull-based settlement is preserved.
+- If the recipient cannot receive native tokens, the transaction reverts and escrow accounting stays intact until a
+  valid recipient is supplied.
+
+### Client refund hardening
+
+- `cancelTask` now credits the client through `pendingWithdrawals` instead of pushing a direct transfer, matching
+  dispute-resolution withdrawals. Clients call `withdrawPending()` or `withdrawPendingTo(recipient)` to pull refunds.
+
+### Verifier refund hardening
+
+- When a two-agent JSON facts stage fails before LLM starts, unused prepaid LLM budget is credited through
+  `pendingVerificationRefunds`. The requester calls `withdrawVerificationRefund()` or
+  `withdrawVerificationRefundTo(recipient)` to pull the credit.
+
+### NeedsReview resubmission
+
+- Contractors may resubmit from `NeedsReview`. A new submission replaces the active submission and invalidates stale
+  verifier callbacks tied to the prior request ID.
+
+### GrantRound / future receiver compatibility
+
+- `VigiliaMultiAgentVerifier` forwards terminal results through `IVigiliaEscrowVerdictReceiver`, not concrete escrow
+  logic. A future `GrantRound` contract can implement the same receiver interface and be bound once at deployment.
+- Multi-receiver routing is intentionally **not** implemented in v0.2.3 to avoid destabilizing the proven two-agent
+  flow.
+
+### Escrow liveness and stuck-fund review
+
+| State / path | Fund disposition | Liveness exits |
+|---|---|---|
+| `Created` / `Funded` cancel | Client `pendingWithdrawals` credit | `cancelTask` + `withdrawPending` |
+| `Submitted` | Escrow held | Verifier callback, `markVerificationTimedOut`, dispute |
+| `VerificationFailed` | Escrow held | `retryVerification`, resubmit, `approveTask`, dispute |
+| `VerifiedComplete` | Escrow held until claim | Review-window auto-claim, client approval, dispute |
+| `NeedsReview` | Escrow held | Resubmit, client approval, dispute |
+| `Incomplete` | Escrow held | Resubmit, client cancel, dispute |
+| `Approved` | Escrow held until claim | `claim` / `claimTo`, dispute |
+| `Disputed` | Escrow held until resolution | Resolver split -> `pendingWithdrawals` + `withdrawPending` |
+| `Claimed` / `Cancelled` / `Resolved` | Terminal | None required |
+
+No terminal state traps escrow without at least one party action (`claimTo`, `withdrawPending`, or resolver allocation).
+
+### Remaining production limitations
+
+- Single bound settlement receiver per verifier instance (no dynamic multi-receiver registry yet).
+- Native-token only; no ERC20 escrow in this MVP.
+- Dispute resolution relies on a per-task resolver chosen at creation time.
+- Verifier Blockscout verification for the v0.2.2 multi-agent verifier address may still require manual
+  standard-json submission on Somnia testnet.
+
 Proof package: [`docs/proofs/2026-06-01-two-agent-settlement-rpc-proof.md`](./proofs/2026-06-01-two-agent-settlement-rpc-proof.md).

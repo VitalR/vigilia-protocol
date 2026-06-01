@@ -40,7 +40,8 @@ interface IVigiliaEscrowDemo {
             uint8 state,
             uint8 stateBeforeDispute,
             string memory requirementsURI,
-            uint64 reviewWindow
+            uint64 reviewWindow,
+            uint64 verificationTimeout
         );
 
     function submissions(uint256 _submissionId)
@@ -107,6 +108,7 @@ contract VigiliaJsonApiSmokeDemo is Script {
         uint8 stateBeforeDispute;
         string requirementsURI;
         uint64 reviewWindow;
+        uint64 verificationTimeout;
     }
 
     struct SubmissionView {

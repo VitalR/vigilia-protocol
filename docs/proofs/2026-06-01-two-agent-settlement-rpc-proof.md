@@ -220,3 +220,8 @@ not mark these contracts verified until Blockscout accepts the submissions.
 
 This proves live v0.2.2 settlement for JSON API facts plus LLM Inference bounded verdicts. It does not prove LLM Parse
 Website settlement, GitHub-native verification, or arbitrary website parsing as a settlement-critical path.
+
+## Post-proof hardening (v0.2.3, not yet redeployed)
+
+Source hardening after this proof adds verification timeout liveness, `claimTo`, NeedsReview resubmission, and
+pull-based cancel refunds via `pendingWithdrawals`. Redeploy as v0.2.3 before claiming those behaviors on testnet.

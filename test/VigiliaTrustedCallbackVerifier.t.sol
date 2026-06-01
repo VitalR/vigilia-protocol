@@ -125,7 +125,7 @@ contract VigiliaTrustedCallbackVerifierTest is Test {
         vm.prank(_callbackSender);
         _agentVerifier.handleAgentCallback(requestId, VigiliaTypes.VerificationVerdict.Complete, _VERIFIER_NOTES_URI);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,, uint64 verifiedAt) = _escrow.submissions(submissionId);
         (,,,, bool fulfilled) = _agentVerifier.requests(requestId);
 
@@ -190,7 +190,7 @@ contract VigiliaTrustedCallbackVerifierTest is Test {
         );
 
         (,,,, bytes32 storedRequestId, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,, bool oldFulfilled) = _agentVerifier.requests(firstRequestId);
 
         assertEq(storedRequestId, secondRequestId);
@@ -204,7 +204,7 @@ contract VigiliaTrustedCallbackVerifierTest is Test {
         );
 
         (,,,,, verdict,,) = _escrow.submissions(submissionId);
-        (,,,,,,, state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Complete));
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
     }

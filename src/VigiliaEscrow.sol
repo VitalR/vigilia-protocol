@@ -19,6 +19,7 @@ contract VigiliaEscrow {
     /// @param resolver Task-specific account allowed to resolve disputes.
     /// @param amount Exact native-token escrow amount required to fund the task.
     /// @param reviewWindow Seconds the client can use to approve or dispute a complete submission before auto-claim.
+    /// @param verificationTimeout Seconds after submission before either task party may mark verification timed out.
     /// @param requirementsURI Public URI describing task requirements.
     event TaskCreated(
         uint256 indexed taskId,
@@ -27,6 +28,7 @@ contract VigiliaEscrow {
         address resolver,
         uint256 amount,
         uint64 reviewWindow,
+        uint64 verificationTimeout,
         ClaimPolicy claimPolicy,
         string requirementsURI
     );
@@ -76,6 +78,15 @@ contract VigiliaEscrow {
         uint256 indexed taskId, uint256 indexed submissionId, bytes32 requestId, string failureNotesURI
     );
 
+    /// @notice Emitted when a submitted task exceeds its verification timeout without a terminal verifier callback.
+    /// @param taskId Task whose verification timed out.
+    /// @param submissionId Active submission whose verifier request expired.
+    /// @param requestId Verifier request identifier associated with the timed-out submission.
+    /// @param timeoutAt Timestamp when verification timeout eligibility began (`submittedAt + verificationTimeout`).
+    event VerificationTimedOut(
+        uint256 indexed taskId, uint256 indexed submissionId, bytes32 indexed requestId, uint64 timeoutAt
+    );
+
     /// @notice Emitted when an active failed submission is sent back to the verifier without replacing evidence.
     /// @param taskId Task whose active submission is being retried.
     /// @param submissionId Active submission receiving a new verifier request.
@@ -91,11 +102,11 @@ contract VigiliaEscrow {
     /// @param submissionId Active submission approved for settlement.
     event TaskApproved(uint256 indexed taskId, address indexed client, uint256 indexed submissionId);
 
-    /// @notice Emitted when the contractor pulls approved escrow funds.
+    /// @notice Emitted when the contractor or an approved recipient pulls escrow funds.
     /// @param taskId Claimed task identifier.
-    /// @param contractor Contractor account receiving funds.
+    /// @param recipient Account receiving the payout.
     /// @param amount Native-token payout amount.
-    event TaskClaimed(uint256 indexed taskId, address indexed contractor, uint256 amount);
+    event TaskClaimed(uint256 indexed taskId, address indexed recipient, uint256 amount);
 
     /// @notice Emitted when a client or contractor freezes an active task in dispute.
     /// @param taskId Disputed task identifier.
@@ -155,6 +166,16 @@ contract VigiliaEscrow {
     /// @param claimableAt Earliest timestamp when review-window claim is allowed.
     /// @param currentTime Current block timestamp.
     error ReviewWindowActive(uint256 taskId, uint256 claimableAt, uint256 currentTime);
+    /// @notice Reverts when verification timeout has not yet elapsed for a submitted task.
+    /// @param taskId Task being checked.
+    /// @param timeoutAt Earliest timestamp when timeout may be recorded.
+    /// @param currentTime Current block timestamp.
+    error VerificationTimeoutNotExpired(uint256 taskId, uint256 timeoutAt, uint256 currentTime);
+    /// @notice Reverts when a task verification timeout is outside the allowed bounds.
+    /// @param timeout Requested verification timeout in seconds.
+    /// @param minTimeout Minimum allowed verification timeout in seconds.
+    /// @param maxTimeout Maximum allowed verification timeout in seconds.
+    error InvalidVerificationTimeout(uint64 timeout, uint64 minTimeout, uint64 maxTimeout);
     /// @notice Reverts when a submission is not the active submission for the supplied task.
     /// @param taskId Task being checked.
     /// @param submissionId Submission being checked.
@@ -222,6 +243,7 @@ contract VigiliaEscrow {
     /// @param stateBeforeDispute Last state before a dispute freeze.
     /// @param requirementsURI Public URI describing task requirements.
     /// @param reviewWindow Seconds after a complete verdict before contractor auto-claim is allowed.
+    /// @param verificationTimeout Seconds after submission before timeout may be recorded by either task party.
     struct Task {
         address client;
         address contractor;
@@ -234,6 +256,7 @@ contract VigiliaEscrow {
         TaskState stateBeforeDispute;
         string requirementsURI;
         uint64 reviewWindow;
+        uint64 verificationTimeout;
     }
 
     /// @notice Public evidence submission associated with a task.
@@ -278,6 +301,15 @@ contract VigiliaEscrow {
     /// @notice Claim policy selected per task.
     mapping(uint256 taskId => ClaimPolicy policy) public taskClaimPolicies;
 
+    /// @notice Minimum allowed per-task verification timeout.
+    uint64 public constant MIN_VERIFICATION_TIMEOUT = 60 seconds;
+
+    /// @notice Maximum allowed per-task verification timeout.
+    uint64 public constant MAX_VERIFICATION_TIMEOUT = 30 days;
+
+    /// @notice Default verification timeout applied by `createTask` and `createTaskWithPolicy`.
+    uint64 public constant DEFAULT_VERIFICATION_TIMEOUT = 7 days;
+
     /// @notice Initializes the escrow with the verifier adapter allowed to request and record verification results.
     /// @param _verifier Verifier contract address. In MVP tests this is MockVerifier; later it can be a Somnia adapter.
     constructor(address _verifier) {
@@ -321,9 +353,50 @@ contract VigiliaEscrow {
         string calldata _requirementsURI,
         ClaimPolicy _claimPolicy
     ) public returns (uint256 taskId) {
+        taskId = _createTask(
+            _contractor, _resolver, _amount, _reviewWindow, _requirementsURI, _claimPolicy, DEFAULT_VERIFICATION_TIMEOUT
+        );
+    }
+
+    /// @notice Creates an unfunded fixed-price task with explicit claim policy and verification timeout.
+    /// @param _contractor Contractor wallet allowed to submit evidence and claim approved funds.
+    /// @param _resolver Task-specific resolver wallet allowed to allocate disputed escrow.
+    /// @param _amount Exact native-token amount the client must later escrow for this task.
+    /// @param _reviewWindow Seconds after a complete verdict before review-window auto-claim is allowed.
+    /// @param _requirementsURI Public URI describing task requirements and expected evidence.
+    /// @param _claimPolicy Claim path for a verified-complete task.
+    /// @param _verificationTimeout Seconds after submission before either task party may mark verification timed out.
+    /// @return taskId Newly created task identifier.
+    function createTaskWithPolicyAndTimeout(
+        address _contractor,
+        address _resolver,
+        uint256 _amount,
+        uint64 _reviewWindow,
+        string calldata _requirementsURI,
+        ClaimPolicy _claimPolicy,
+        uint64 _verificationTimeout
+    ) public returns (uint256 taskId) {
+        taskId = _createTask(
+            _contractor, _resolver, _amount, _reviewWindow, _requirementsURI, _claimPolicy, _verificationTimeout
+        );
+    }
+
+    /// @dev Shared task creation path for default and custom verification timeouts.
+    function _createTask(
+        address _contractor,
+        address _resolver,
+        uint256 _amount,
+        uint64 _reviewWindow,
+        string calldata _requirementsURI,
+        ClaimPolicy _claimPolicy,
+        uint64 _verificationTimeout
+    ) private returns (uint256 taskId) {
         if (_contractor == address(0)) revert InvalidAddress();
         if (_resolver == address(0)) revert InvalidAddress();
         if (_amount == 0) revert InvalidAmount();
+        if (_verificationTimeout < MIN_VERIFICATION_TIMEOUT || _verificationTimeout > MAX_VERIFICATION_TIMEOUT) {
+            revert InvalidVerificationTimeout(_verificationTimeout, MIN_VERIFICATION_TIMEOUT, MAX_VERIFICATION_TIMEOUT);
+        }
 
         taskId = nextTaskId++;
         Task storage task = tasks[taskId];
@@ -334,10 +407,19 @@ contract VigiliaEscrow {
         task.state = TaskState.Created;
         task.requirementsURI = _requirementsURI;
         task.reviewWindow = _reviewWindow;
+        task.verificationTimeout = _verificationTimeout;
         taskClaimPolicies[taskId] = _claimPolicy;
 
         emit TaskCreated(
-            taskId, msg.sender, _contractor, _resolver, _amount, _reviewWindow, _claimPolicy, _requirementsURI
+            taskId,
+            msg.sender,
+            _contractor,
+            _resolver,
+            _amount,
+            _reviewWindow,
+            _verificationTimeout,
+            _claimPolicy,
+            _requirementsURI
         );
     }
 
@@ -356,7 +438,7 @@ contract VigiliaEscrow {
         emit TaskFunded(_taskId, msg.sender, msg.value);
     }
 
-    /// @notice Submits public evidence for a funded, incomplete, or verification-failed task.
+    /// @notice Submits public evidence for a funded, incomplete, needs-review, or verification-failed task.
     /// @param _taskId Task receiving the evidence submission.
     /// @param _evidenceURI Public URI containing evidence metadata, links, and artifacts.
     /// @param _evidenceHash Hash of the evidence bundle or metadata for off-chain integrity checks.
@@ -497,6 +579,25 @@ contract VigiliaEscrow {
         emit VerificationRetried(_taskId, submissionId, msg.sender, requestId);
     }
 
+    /// @notice Marks a submitted task as verification-failed after the task's configured verification timeout elapses.
+    /// @dev Either task party may call this when the verifier has not returned a terminal callback. Timeout uses
+    /// `submission.submittedAt + task.verificationTimeout`. This does not release funds directly; the task enters the
+    /// same retryable `VerificationFailed` path as infrastructure failure.
+    /// @param _taskId Task whose active submission timed out.
+    function markVerificationTimedOut(uint256 _taskId) external {
+        Task storage task = _existingTask(_taskId);
+        if (msg.sender != task.client && msg.sender != task.contractor) revert Unauthorized(msg.sender);
+        _requireState(_taskId, task, TaskState.Submitted);
+
+        Submission storage submission = submissions[task.activeSubmissionId];
+        uint256 timeoutAt = uint256(submission.submittedAt) + uint256(task.verificationTimeout);
+        if (block.timestamp < timeoutAt) revert VerificationTimeoutNotExpired(_taskId, timeoutAt, block.timestamp);
+
+        task.state = TaskState.VerificationFailed;
+
+        emit VerificationTimedOut(_taskId, task.activeSubmissionId, submission.requestId, uint64(timeoutAt));
+    }
+
     /// @notice Approves a submitted, complete, incomplete, or verification-failed task so the contractor can pull
     /// payment. @param _taskId Task to approve.
     function approveTask(uint256 _taskId) external {
@@ -516,9 +617,21 @@ contract VigiliaEscrow {
         emit TaskApproved(_taskId, msg.sender, task.activeSubmissionId);
     }
 
-    /// @notice Claims escrow funds after client approval or after a complete verdict review window expires.
+    /// @notice Claims escrow funds to the contractor after client approval or review-window auto-claim eligibility.
     /// @param _taskId Task to claim.
     function claim(uint256 _taskId) external {
+        claimTo(_taskId, payable(msg.sender));
+    }
+
+    /// @notice Claims escrow funds to an explicit recipient after client approval or review-window auto-claim
+    /// eligibility. @dev Only the contractor may choose the payout recipient. This preserves pull-based settlement
+    /// while allowing
+    /// safe forwarding to a wallet or contract that can receive native tokens.
+    /// @param _taskId Task to claim.
+    /// @param _recipient Native-token recipient chosen by the contractor.
+    function claimTo(uint256 _taskId, address payable _recipient) public {
+        if (_recipient == address(0)) revert InvalidAddress();
+
         Task storage task = _existingTask(_taskId);
         _onlyContractor(task);
 
@@ -538,10 +651,10 @@ contract VigiliaEscrow {
         task.fundedAmount = 0;
         task.state = TaskState.Claimed;
 
-        (bool success,) = msg.sender.call{ value: payout }("");
-        if (!success) revert TransferFailed(msg.sender, payout);
+        (bool success,) = _recipient.call{ value: payout }("");
+        if (!success) revert TransferFailed(_recipient, payout);
 
-        emit TaskClaimed(_taskId, msg.sender, payout);
+        emit TaskClaimed(_taskId, _recipient, payout);
     }
 
     /// @notice Raises a basic dispute and freezes claim/cancellation paths until the task resolver allocates escrow.
@@ -590,22 +703,32 @@ contract VigiliaEscrow {
         emit DisputeResolved(_taskId, msg.sender, _clientRefund, _contractorAward, _resolutionURI);
     }
 
-    /// @notice Withdraws native-token credit allocated by dispute resolution.
+    /// @notice Withdraws native-token credit allocated by dispute resolution or cancellation.
+    function withdrawPending() external {
+        withdrawPendingTo(payable(msg.sender));
+    }
+
+    /// @notice Withdraws native-token credit to an explicit recipient.
     /// @dev Credits are cleared before transfer, so a reverting recipient cannot corrupt accounting or reenter for the
     /// same funds.
-    function withdrawPending() external {
+    /// @param _recipient Native-token recipient chosen by the credited account.
+    function withdrawPendingTo(address payable _recipient) public {
+        if (_recipient == address(0)) revert InvalidAddress();
+
         uint256 amount = pendingWithdrawals[msg.sender];
         if (amount == 0) revert NoPendingWithdrawal(msg.sender);
 
         pendingWithdrawals[msg.sender] = 0;
 
-        (bool success,) = msg.sender.call{ value: amount }("");
-        if (!success) revert TransferFailed(msg.sender, amount);
+        (bool success,) = _recipient.call{ value: amount }("");
+        if (!success) revert TransferFailed(_recipient, amount);
 
-        emit PendingWithdrawalClaimed(msg.sender, amount);
+        emit PendingWithdrawalClaimed(_recipient, amount);
     }
 
-    /// @notice Cancels a task and refunds escrow when no valid payable submission is pending or approved.
+    /// @notice Cancels a task and credits the client for refund when no valid payable submission is pending or
+    /// approved. @dev Refunds are credited through `pendingWithdrawals` so a reverting client wallet cannot trap escrow
+    /// funds.
     /// @param _taskId Task to cancel.
     function cancelTask(uint256 _taskId) external {
         Task storage task = _existingTask(_taskId);
@@ -624,8 +747,7 @@ contract VigiliaEscrow {
         task.state = TaskState.Cancelled;
 
         if (refundAmount != 0) {
-            (bool success,) = task.client.call{ value: refundAmount }("");
-            if (!success) revert TransferFailed(task.client, refundAmount);
+            pendingWithdrawals[task.client] += refundAmount;
         }
 
         emit TaskCancelled(_taskId, task.client, refundAmount);
@@ -652,11 +774,11 @@ contract VigiliaEscrow {
         if (_task.state != _expected) revert InvalidState(_taskId, _task.state);
     }
 
-    /// @dev Allows initial submission from `Funded` and revised evidence after a work or infrastructure failure.
+    /// @dev Allows initial submission from `Funded` and revised evidence after work, review, or infrastructure failure.
     function _requireSubmittable(uint256 _taskId, Task storage _task) private view {
         if (
             _task.state != TaskState.Funded && _task.state != TaskState.Incomplete
-                && _task.state != TaskState.VerificationFailed
+                && _task.state != TaskState.NeedsReview && _task.state != TaskState.VerificationFailed
         ) {
             revert InvalidState(_taskId, _task.state);
         }

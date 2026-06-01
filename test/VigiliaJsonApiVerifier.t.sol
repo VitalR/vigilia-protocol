@@ -178,7 +178,7 @@ contract VigiliaJsonApiVerifierTest is Test {
         );
         _escrow.submitWork{ value: requiredDeposit - 1 }(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Funded));
     }
 
@@ -219,7 +219,7 @@ contract VigiliaJsonApiVerifierTest is Test {
         vm.expectRevert(abi.encodeWithSelector(VigiliaJsonApiVerifier.UnknownRequest.selector, 0));
         _escrow.submitWork{ value: _requiredDeposit() }(taskId, _EVIDENCE_URI, _EVIDENCE_HASH);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Funded));
         assertEq(_escrow.nextSubmissionId(), 1);
         assertEq(address(_escrow).balance, _TASK_AMOUNT);
@@ -249,7 +249,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _callbackSuccess("Complete");
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,, uint64 verifiedAt) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
@@ -262,7 +262,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _callbackSuccess("NeedsReview");
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.NeedsReview));
@@ -274,7 +274,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _callbackSuccess("Incomplete");
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Incomplete));
@@ -286,7 +286,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _callbackSuccess("COMPLETE");
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
@@ -298,7 +298,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _callbackSuccess("NEEDS_REVIEW");
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.NeedsReview));
@@ -310,7 +310,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _callbackSuccess("INCOMPLETE");
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Incomplete));
@@ -348,7 +348,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
@@ -370,7 +370,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
     }
 
@@ -381,7 +381,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
     }
 
@@ -400,7 +400,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
     }
 
@@ -445,7 +445,7 @@ contract VigiliaJsonApiVerifierTest is Test {
         );
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Pending, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, bool fulfilled) = _verifier.requests(1);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
         assertFalse(fulfilled);
@@ -468,7 +468,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Failed, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, bool fulfilled) = _verifier.requests(1);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
@@ -482,7 +482,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.TimedOut, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, bool fulfilled) = _verifier.requests(1);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
@@ -505,7 +505,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Failed, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, bool fulfilled) = _verifier.requests(1);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Disputed));
         assertTrue(fulfilled);
@@ -527,7 +527,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, bool fulfilled) = _verifier.requests(1);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Disputed));
         assertTrue(fulfilled);
@@ -549,7 +549,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, oldResponses, ISomniaAgentRequester.ResponseStatus.Success, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
         (,,,,, bool oldFulfilled) = _verifier.requests(1);
 
@@ -560,7 +560,7 @@ contract VigiliaJsonApiVerifierTest is Test {
         ISomniaAgentRequester.Response[] memory newResponses = _responses("Complete");
         _platform.callback(address(_verifier), 2, newResponses, ISomniaAgentRequester.ResponseStatus.Success, details);
 
-        (,,,,,,, state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, state,,,,) = _escrow.tasks(taskId);
         (,,,,, verdict,,) = _escrow.submissions(submissionId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerifiedComplete));
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Complete));
@@ -581,7 +581,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Failed, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
@@ -607,7 +607,7 @@ contract VigiliaJsonApiVerifierTest is Test {
 
         _platform.callback(address(_verifier), 1, responses, ISomniaAgentRequester.ResponseStatus.Success, details);
 
-        (,,,,,,, VigiliaEscrow.TaskState state,,,) = _escrow.tasks(taskId);
+        (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
         (,,,,, bool oldFulfilled) = _verifier.requests(1);
 
