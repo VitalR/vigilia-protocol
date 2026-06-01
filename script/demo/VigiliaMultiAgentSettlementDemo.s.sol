@@ -258,9 +258,9 @@ contract VigiliaMultiAgentSettlementDemo is Script {
         if (bytes(evidenceURI).length == 0) revert MissingEnv("VIGILIA_EVIDENCE_JSON_URL");
 
         uint256 deposit = _requestDeposit(_verifier);
-        uint256 configuredDeposit = vm.envOr("AGENT_REQUEST_DEPOSIT_WEI", uint256(0));
+        uint256 configuredDeposit = vm.envOr("TWO_AGENT_WORKFLOW_DEPOSIT_WEI", uint256(0));
         if (configuredDeposit != 0 && configuredDeposit != deposit) {
-            console2.log("configured AGENT_REQUEST_DEPOSIT_WEI differs from two-agent workflow deposit");
+            console2.log("configured TWO_AGENT_WORKFLOW_DEPOSIT_WEI differs from two-agent workflow deposit");
             console2.log("configuredWei", configuredDeposit);
             console2.log("requiredWei", deposit);
         }
@@ -454,6 +454,14 @@ contract VigiliaMultiAgentSettlementDemo is Script {
                 )
             );
         if (success) return abi.decode(data, (uint256));
+
+        uint256 envDeposit = vm.envOr("TWO_AGENT_WORKFLOW_DEPOSIT_WEI", uint256(0));
+        if (envDeposit != 0) {
+            deposit = envDeposit;
+            console2.log("using TWO_AGENT_WORKFLOW_DEPOSIT_WEI because local workflow deposit read failed");
+            console2.log("configuredWei", deposit);
+            return deposit;
+        }
 
         deposit = _computedWorkflowDeposit(_verifier);
         console2.log("computed workflow deposit from verifier config because local platform simulation failed");

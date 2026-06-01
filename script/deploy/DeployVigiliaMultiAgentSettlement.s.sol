@@ -6,13 +6,14 @@ import { VigiliaEscrow } from "../../src/VigiliaEscrow.sol";
 import { VigiliaMultiAgentVerifier } from "../../src/VigiliaMultiAgentVerifier.sol";
 
 /// @title DeployVigiliaMultiAgentSettlement
-/// @notice Deploys a fresh v0.2.2 full settlement system: two-agent verifier + escrow + bind.
-/// @dev Does not mutate the proven v0.1.0 JSON API smoke deployment or the v0.2.0 canary verifier deployment.
+/// @notice Deploys a fresh v0.2.3 hardened settlement system: two-agent verifier + escrow + bind.
+/// @dev Does not mutate the proven v0.1.0 JSON API smoke deployment, v0.2.0 canary, or v0.2.2 settlement proof.
 contract DeployVigiliaMultiAgentSettlement is Script {
-    string private constant _DEPLOYMENT_ARTIFACT = "deployments/somnia-testnet-50312-two-agent-settlement.json";
-    string private constant _DEPLOYMENT_NAME = "vigilia-two-agent-settlement";
+    string private constant _DEPLOYMENT_ARTIFACT =
+        "deployments/somnia-testnet-50312-two-agent-settlement-hardened.json";
+    string private constant _DEPLOYMENT_NAME = "vigilia-two-agent-settlement-hardened";
     string private constant _NETWORK = "somnia-testnet";
-    string private constant _VERSION = "v0.2.2";
+    string private constant _VERSION = "v0.2.3";
 
     struct DeploymentConfig {
         uint256 deployerPrivateKey;
@@ -119,7 +120,7 @@ contract DeployVigiliaMultiAgentSettlement is Script {
         vm.serializeString(
             object,
             "notes",
-            "v0.2.2 settlement uses JSON API facts followed by LLM Inference bounded verdicts. LLM Parse Website settlement remains disabled due to platform Failed callbacks."
+            "v0.2.3 hardened settlement uses JSON API facts followed by LLM Inference bounded verdicts with escrow timeout/claimTo/pending-withdrawal liveness and unused LLM budget refunds on JSON-stage failure. LLM Parse Website settlement remains disabled due to platform Failed callbacks."
         );
         vm.serializeUint(object, "jsonApiAgentId", _config.jsonApiAgentId);
         if (_config.llmInferenceAgentId != 0) {

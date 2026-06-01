@@ -7,7 +7,7 @@ DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312.json
 DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaSystem.s.sol:DeployVigiliaSystem
 MULTI_AGENT_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaMultiAgentVerifier.s.sol:DeployVigiliaMultiAgentVerifier
 MULTI_SETTLEMENT_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaMultiAgentSettlement.s.sol:DeployVigiliaMultiAgentSettlement
-MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312-two-agent-settlement.json
+MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312-two-agent-settlement-hardened.json
 MULTI_SETTLEMENT_DEMO_SCRIPT ?= script/demo/VigiliaMultiAgentSettlementDemo.s.sol:VigiliaMultiAgentSettlementDemo
 DEMO_SCRIPT ?= script/demo/VigiliaJsonApiSmokeDemo.s.sol:VigiliaJsonApiSmokeDemo
 CANARY_SCRIPT ?= script/demo/VigiliaAgentCanary.s.sol:VigiliaAgentCanary
@@ -389,7 +389,9 @@ multi-settlement-verify-escrow:
 
 multi-settlement-demo-create-task:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_AMOUNT_WEI DEMO_REVIEW_WINDOW"
-	DEMO_ACTION=create forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
+	@claim_policy=$${DEMO_CLAIM_POLICY:-1}; \
+	if [ -n "$$DEMO_CREATE_CLAIM_POLICY" ]; then claim_policy=$$DEMO_CREATE_CLAIM_POLICY; fi; \
+	DEMO_CLAIM_POLICY=$$claim_policy DEMO_ACTION=create forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
 
 multi-settlement-demo-fund-task:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
@@ -417,11 +419,11 @@ multi-settlement-demo-inspect-task:
 
 multi-settlement-demo-approve-task:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
-	DEMO_ACTION=approve forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
+	cast send "$$VIGILIA_MULTI_AGENT_ESCROW" "approveTask(uint256)" "$$DEMO_TASK_ID" --gas-limit $(DEMO_GAS_LIMIT) --legacy --rpc-url "$$SOMNIA_RPC_URL" --private-key "$$DEPLOYER_PRIVATE_KEY"
 
 multi-settlement-demo-claim-task:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
-	DEMO_ACTION=claim forge script $(MULTI_SETTLEMENT_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_DEMO_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
+	cast send "$$VIGILIA_MULTI_AGENT_ESCROW" "claim(uint256)" "$$DEMO_TASK_ID" --gas-limit $(DEMO_GAS_LIMIT) --legacy --rpc-url "$$SOMNIA_RPC_URL" --private-key "$$DEPLOYER_PRIVATE_KEY"
 
 multi-settlement-demo-retry-verification:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_ESCROW VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER DEMO_TASK_ID"
@@ -433,9 +435,9 @@ multi-settlement-demo-continue-llm-verification:
 
 multi-agent-demo-create-task: multi-settlement-demo-create-task
 multi-agent-demo-create-task-immediate-claim:
-	DEMO_CLAIM_POLICY=2 $(MAKE) --no-print-directory multi-settlement-demo-create-task
+	DEMO_CREATE_CLAIM_POLICY=2 $(MAKE) --no-print-directory multi-settlement-demo-create-task
 multi-agent-demo-create-task-client-approval:
-	DEMO_CLAIM_POLICY=0 $(MAKE) --no-print-directory multi-settlement-demo-create-task
+	DEMO_CREATE_CLAIM_POLICY=0 $(MAKE) --no-print-directory multi-settlement-demo-create-task
 multi-agent-demo-fund-task: multi-settlement-demo-fund-task
 multi-agent-demo-submit-facts-complete: multi-settlement-demo-submit-complete
 multi-agent-demo-submit-facts-incomplete: multi-settlement-demo-submit-incomplete

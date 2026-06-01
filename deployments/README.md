@@ -22,9 +22,12 @@ claim policy. LLM Parse Website remains disabled for settlement.
 The live proof is recorded in `docs/13_TWO_AGENT_SETTLEMENT_RUNBOOK.md` and
 `docs/proofs/2026-06-01-two-agent-settlement-rpc-proof.md`. Additional 2026-06-01 RPC runs covered `NeedsReview`,
 malformed-facts `VerificationFailed` plus recovery, `ClientApprovalOnly`, and `ReviewWindowAutoClaim`.
-Blockscout verification for the v0.2.2 addresses is still pending because the API continues to return
-`Address is not a smart-contract`; official RPC `cast code`, receipts, and logs are canonical until the explorer indexer
-catches up.
+
+`deployments/somnia-testnet-50312-two-agent-settlement-hardened.json` records the v0.2.3 hardened redeployment: fresh
+escrow and verifier with timeout liveness, `claimTo`, NeedsReview resubmission, pull-based cancel refunds, and unused LLM
+budget refunds on JSON-stage failure. Live Makefile E2E proof:
+`docs/proofs/2026-06-01-two-agent-settlement-hardened-rpc-proof.md`. Blockscout verification returned `Response: OK` for
+both contracts after indexer catch-up.
 
 Each artifact should include a `deploymentName`, `version`, and public agent configuration. Do not overwrite older
 artifacts when adding a new deployment line.

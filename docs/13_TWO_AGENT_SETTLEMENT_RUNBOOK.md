@@ -1,6 +1,8 @@
 # Two-Agent Settlement Runbook
 
-This runbook covers the v0.2.2 Vigilia settlement path on Somnia testnet:
+This runbook covers the Vigilia two-agent settlement path on Somnia testnet. The current hardened deployment is v0.2.3
+(`deployments/somnia-testnet-50312-two-agent-settlement-hardened.json`). The proven v0.2.2 deployment remains available as
+a historical artifact and must not be overwritten.
 
 ```text
 JSON API facts -> LLM Inference bounded verdict -> escrow policy
@@ -19,8 +21,9 @@ claim policy and funds never move from an agent callback.
 | Multi-agent canary | v0.2.0 | `deployments/somnia-testnet-50312-multi-agent-canary.json` | JSON API, LLM Inference, and Website Parse canaries; no escrow settlement |
 | JSON-only settlement | v0.2.1 | `deployments/somnia-testnet-50312-multi-agent-settlement.json` | Fresh escrow settlement, but the settlement verdict still came from JSON API |
 | Two-agent settlement | v0.2.2 | `deployments/somnia-testnet-50312-two-agent-settlement.json` | JSON API facts plus LLM Inference final verdict |
+| Two-agent settlement hardened | v0.2.3 | `deployments/somnia-testnet-50312-two-agent-settlement-hardened.json` | v0.2.2 flow plus escrow timeout/claimTo, NeedsReview resubmission, pull cancel refunds, unused LLM budget refunds |
 
-Do not overwrite historical artifacts. v0.2.2 deploys fresh instances.
+Do not overwrite historical artifacts. v0.2.3 deploys fresh instances.
 
 ## No-Overclaim Rule
 
@@ -242,7 +245,7 @@ cast logs --address "$VIGILIA_MULTI_AGENT_ESCROW" --from-block <FROM> --to-block
 
 Expected:
 
-- submit tx targets the v0.2.2 escrow
+- submit tx targets the current settlement escrow (`VIGILIA_MULTI_AGENT_ESCROW`)
 - callback txs target the Somnia Agent Platform
 - verifier emits `JsonFactsReceived`
 - verifier emits `LlmVerdictRequested`
@@ -252,9 +255,35 @@ Expected:
 
 If Shannon explorer address/search tabs disagree with RPC, use official RPC receipts and logs as canonical proof.
 
-## Live Result
+## Live Result (v0.2.3 hardened)
 
-Live on Somnia testnet through official RPC on 2026-06-01.
+Live on Somnia testnet through official RPC on 2026-06-01. Full Makefile E2E tables:
+[`docs/proofs/2026-06-01-two-agent-settlement-hardened-rpc-proof.md`](./proofs/2026-06-01-two-agent-settlement-hardened-rpc-proof.md).
+
+| Field | Value |
+|---|---|
+| Escrow | `0x1FA22E3a97dabB9a8C6de3a5B59eF6cCD5B2F4b9` |
+| Verifier | `0xdE0aC9700E591b54A418665575f2e1d329D78f3D` |
+| Deployment artifact | `deployments/somnia-testnet-50312-two-agent-settlement-hardened.json` |
+| Workflow deposit env | `TWO_AGENT_WORKFLOW_DEPOSIT_WEI=360000000000000000` |
+| Blockscout verification | `Response: OK` for both contracts after indexer catch-up |
+
+Makefile scenarios exercised:
+
+| Case | Task | Targets | Final state |
+|---|---:|---|---|
+| Complete + ImmediateAutoClaim | `4` | `multi-agent-demo-create-task-immediate-claim`, fund, submit-complete, claim | `Claimed` |
+| Malformed + recovery | `6` | immediate-claim create, fund, submit-malformed, submit-complete, claim | `Claimed` |
+| NeedsReview + approval | `7` | create, fund, submit-needs-review, approve, claim | `Claimed` |
+
+Operational notes:
+
+- Set `TWO_AGENT_WORKFLOW_DEPOSIT_WEI`, not `AGENT_REQUEST_DEPOSIT_WEI`, for settlement submit/retry demos.
+- `make multi-settlement-demo-submit-*` may log local simulation failure but still broadcast with `--skip-simulation`.
+- Scripted `bindEscrow`, `approveTask`, and `claim` may need explicit `--gas-limit $(DEMO_GAS_LIMIT)` on Somnia; approve/claim
+  Makefile targets now use `cast send` with the configured gas cap.
+
+## Live Result (v0.2.2 historical)
 
 | Field | Value |
 |---|---|
@@ -348,7 +377,7 @@ Implementation hardening after the live run:
 
 ## Final pre-redeploy hardening
 
-Target release: **v0.2.3** (fresh escrow + verifier redeploy; do not upgrade live v0.2.2 in place).
+Target release: **v0.2.3** deployed to Somnia testnet (`deployments/somnia-testnet-50312-two-agent-settlement-hardened.json`).
 
 ### Verification timeout liveness
 
