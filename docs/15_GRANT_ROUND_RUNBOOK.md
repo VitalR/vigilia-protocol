@@ -603,6 +603,33 @@ full-two-agent-review-board-prep
 `full-*` actions do not wait for async callbacks. Use them only for grouped prep
 where safe, then run the normal inspect/request/select commands.
 
+### Live Request Screening Fallback
+
+`forge script --broadcast` can be unreliable for the live Somnia agent request
+path in some local environments because local execution may query platform
+helpers before broadcasting. Use the direct cast fallback when
+`make grant-demo-request-screening` fails before sending a transaction:
+
+```bash
+make grant-demo-request-screening-cast GRANT_APPLICATION_ID=<app id>
+```
+
+The fallback sends:
+
+```bash
+cast send "$VIGILIA_GRANT_ROUND" \
+  "requestApplicationScreening(uint256)" "$GRANT_APPLICATION_ID" \
+  --value "$GRANT_ROUND_WORKFLOW_DEPOSIT_WEI" \
+  --rpc-url "$SOMNIA_RPC_URL" \
+  --private-key <requester key> \
+  --legacy \
+  --gas-limit "$DEMO_GAS_LIMIT"
+```
+
+Requester key selection is `GRANT_REQUESTER_PRIVATE_KEY`, then
+`SPONSOR_PRIVATE_KEY`, then `DEPLOYER_PRIVATE_KEY`. Sponsor, judge, and the
+applicant are all valid requesters. Do not print or commit private keys.
+
 ## Evidence Hosting
 
 Local fixtures live under:
@@ -667,6 +694,26 @@ Applicant 4: Incomplete   -> rejected or left unselected
 This proves many applicants, agent screening, max-three finalist selection,
 finalist claims, and non-selection of incomplete work.
 
+### Full Four-Applicant Proof
+
+The live proof for this campaign is recorded in:
+
+```text
+docs/proofs/2026-06-03-grant-round-demo-scenarios.md
+```
+
+Round `4` proves the current safe fallback path:
+
+```text
+agents screened applications;
+judge/sponsor selected finalists;
+three selected finalists claimed;
+the Incomplete application stayed unselected and unclaimed.
+```
+
+Do not describe this as agents identifying or choosing finalists. Agents only
+produce screening metadata; judges or sponsors choose finalists.
+
 Use fast deadlines only when you are ready to operate quickly:
 
 ```bash
@@ -681,28 +728,28 @@ export GRANT_EVIDENCE_URI=$GRANT_COMPLETE_EVIDENCE_URI
 make grant-demo-submit-complete
 export COMPLETE_APP_ID=<id>
 export GRANT_APPLICATION_ID=$COMPLETE_APP_ID
-make grant-demo-request-screening-complete
+make grant-demo-request-screening-complete-cast
 
 export GRANT_APPLICANT_INDEX=2
 export GRANT_EVIDENCE_URI=$GRANT_NEEDS_REVIEW_EVIDENCE_URI
 make grant-demo-submit-needs-review
 export NEEDS_REVIEW_APP_ID=<id>
 export GRANT_APPLICATION_ID=$NEEDS_REVIEW_APP_ID
-make grant-demo-request-screening-needs-review
+make grant-demo-request-screening-needs-review-cast
 
 export GRANT_APPLICANT_INDEX=3
 export GRANT_EVIDENCE_URI=$GRANT_COMPLETE_EVIDENCE_URI
 make grant-demo-submit-complete
 export COMPLETE_APP_ID_2=<id>
 export GRANT_APPLICATION_ID=$COMPLETE_APP_ID_2
-make grant-demo-request-screening-complete
+make grant-demo-request-screening-complete-cast
 
 export GRANT_APPLICANT_INDEX=4
 export GRANT_EVIDENCE_URI=$GRANT_INCOMPLETE_EVIDENCE_URI
 make grant-demo-submit-incomplete
 export INCOMPLETE_APP_ID=<id>
 export GRANT_APPLICATION_ID=$INCOMPLETE_APP_ID
-make grant-demo-request-screening-incomplete
+make grant-demo-request-screening-incomplete-cast
 ```
 
 Wait for async JSON and LLM callbacks, then inspect:
@@ -838,8 +885,27 @@ that all of the following are true:
 - `make grant-demo-inspect` shows the expected final application status;
 - receipts or logs include the Website Parse request, LLM request, and GrantRound callback.
 
+A Website Parse canary request submission alone is not sufficient. A positive
+ThreeAgent claim requires the full GrantRound path: a `ScreeningMode.ThreeAgent`
+round, applicant evidence, Website Parse callback, LLM bounded verdict,
+GrantRound `recordVerdict`, finalist selection by judge/sponsor, finalization,
+and claim.
+
 If these are not all true, keep the final live demo on `GRANT_SCREENING_MODE=0`
 as the safe Somnia-powered fallback.
+
+Current status from the June 3 proof:
+
+```text
+TwoAgent GrantRound: proven end to end.
+Website Parse canary: succeeded against raw GitHub HTML.
+ThreeAgent GrantRound: not proven.
+```
+
+The exact blocker is verifier workflow support. `SettlementWorkflow` does not
+yet include `JsonFactsAndWebsiteToLlmVerdict`, and
+`VigiliaGrantRound._workflowFor(ThreeAgent)` still reverts with
+`UnsupportedScreeningMode(ThreeAgent)`.
 
 ## Proof Checklist
 
@@ -866,9 +932,10 @@ Latest proof note:
 docs/proofs/2026-06-03-grant-round-demo-scenarios.md
 ```
 
-This run proved the live TwoAgent lifecycle against public raw GitHub evidence:
-create, fund, submit, request screening, async agent callback to `Complete`,
-select finalist, finalize, and claim.
+This run proved the live TwoAgent lifecycle against public raw GitHub evidence,
+including the full four-applicant campaign: agents screened applications,
+judge/sponsor selected three finalists, all selected finalists claimed, and the
+Incomplete application remained unselected and unclaimed.
 
 Required environment:
 

@@ -55,6 +55,9 @@ DEMO_CALL_GAS_LIMIT ?= 10000000
 	grant-demo-submit-incomplete grant-demo-submit-malformed grant-demo-request-screening \
 	grant-demo-request-screening-complete grant-demo-request-screening-needs-review \
 	grant-demo-request-screening-incomplete grant-demo-request-screening-malformed \
+	grant-demo-request-screening-cast grant-demo-request-screening-complete-cast \
+	grant-demo-request-screening-needs-review-cast grant-demo-request-screening-incomplete-cast \
+	grant-demo-request-screening-malformed-cast \
 	grant-demo-manual-screen-complete grant-demo-manual-screen-needs-review \
 	grant-demo-manual-screen-incomplete grant-demo-select-finalists grant-demo-reject-application \
 	grant-demo-finalize-round grant-demo-claim-prize grant-demo-refund-unallocated \
@@ -141,6 +144,7 @@ help:
 	@echo "  make grant-demo-fund-round       Fund GRANT_ROUND_ID exactly"
 	@echo "  make grant-demo-submit-complete  Submit public Complete facts evidence"
 	@echo "  make grant-demo-request-screening-complete Request async TwoAgent screening"
+	@echo "  make grant-demo-request-screening-cast Direct cast fallback for live request screening"
 	@echo "  make grant-demo-select-finalists Select GRANT_APPLICATION_IDS after deadline"
 	@echo "  make grant-demo-finalize-round   Finalize so selected finalists can claim"
 	@echo "  make grant-demo-claim-prize      Claim selected GRANT_APPLICATION_ID as applicant"
@@ -150,16 +154,16 @@ help:
 	@echo "GrantRound current fallback campaign order:"
 	@echo "  make grant-demo-create-round && export GRANT_ROUND_ID=<id>"
 	@echo "  make grant-demo-fund-round"
-	@echo "  export GRANT_APPLICANT_INDEX=1 GRANT_EVIDENCE_URI=$$GRANT_COMPLETE_EVIDENCE_URI; make grant-demo-submit-complete"
-	@echo "  export COMPLETE_APP_ID=<id> GRANT_APPLICATION_ID=$$COMPLETE_APP_ID; make grant-demo-request-screening-complete"
-	@echo "  export GRANT_APPLICANT_INDEX=2 GRANT_EVIDENCE_URI=$$GRANT_NEEDS_REVIEW_EVIDENCE_URI; make grant-demo-submit-needs-review"
-	@echo "  export NEEDS_REVIEW_APP_ID=<id> GRANT_APPLICATION_ID=$$NEEDS_REVIEW_APP_ID; make grant-demo-request-screening-needs-review"
-	@echo "  export GRANT_APPLICANT_INDEX=3 GRANT_EVIDENCE_URI=$$GRANT_COMPLETE_EVIDENCE_URI; make grant-demo-submit-complete"
-	@echo "  export COMPLETE_APP_ID_2=<id> GRANT_APPLICATION_ID=$$COMPLETE_APP_ID_2; make grant-demo-request-screening-complete"
-	@echo "  export GRANT_APPLICANT_INDEX=4 GRANT_EVIDENCE_URI=$$GRANT_INCOMPLETE_EVIDENCE_URI; make grant-demo-submit-incomplete"
-	@echo "  export INCOMPLETE_APP_ID=<id> GRANT_APPLICATION_ID=$$INCOMPLETE_APP_ID; make grant-demo-request-screening-incomplete"
+	@echo '  export GRANT_APPLICANT_INDEX=1 GRANT_EVIDENCE_URI=$$GRANT_COMPLETE_EVIDENCE_URI; make grant-demo-submit-complete'
+	@echo '  export COMPLETE_APP_ID=<id> GRANT_APPLICATION_ID=$$COMPLETE_APP_ID; make grant-demo-request-screening-complete-cast'
+	@echo '  export GRANT_APPLICANT_INDEX=2 GRANT_EVIDENCE_URI=$$GRANT_NEEDS_REVIEW_EVIDENCE_URI; make grant-demo-submit-needs-review'
+	@echo '  export NEEDS_REVIEW_APP_ID=<id> GRANT_APPLICATION_ID=$$NEEDS_REVIEW_APP_ID; make grant-demo-request-screening-needs-review-cast'
+	@echo '  export GRANT_APPLICANT_INDEX=3 GRANT_EVIDENCE_URI=$$GRANT_COMPLETE_EVIDENCE_URI; make grant-demo-submit-complete'
+	@echo '  export COMPLETE_APP_ID_2=<id> GRANT_APPLICATION_ID=$$COMPLETE_APP_ID_2; make grant-demo-request-screening-complete-cast'
+	@echo '  export GRANT_APPLICANT_INDEX=4 GRANT_EVIDENCE_URI=$$GRANT_INCOMPLETE_EVIDENCE_URI; make grant-demo-submit-incomplete'
+	@echo '  export INCOMPLETE_APP_ID=<id> GRANT_APPLICATION_ID=$$INCOMPLETE_APP_ID; make grant-demo-request-screening-incomplete-cast'
 	@echo "  # Wait for async callbacks, then make grant-demo-inspect"
-	@echo "  export GRANT_APPLICATION_IDS=$$COMPLETE_APP_ID,$$NEEDS_REVIEW_APP_ID,$$COMPLETE_APP_ID_2; make grant-demo-select-finalists"
+	@echo '  export GRANT_APPLICATION_IDS=$$COMPLETE_APP_ID,$$NEEDS_REVIEW_APP_ID,$$COMPLETE_APP_ID_2; make grant-demo-select-finalists'
 	@echo "  make grant-demo-finalize-round"
 	@echo "  export GRANT_APPLICATION_ID=<finalist id>; make grant-demo-claim-prize"
 	@echo "  make grant-demo-refund-unallocated && make grant-demo-withdraw-pending"
@@ -546,6 +550,27 @@ grant-demo-request-screening-incomplete:
 
 grant-demo-request-screening-malformed:
 	DEMO_ACTION=request-screening-malformed $(MAKE) --no-print-directory grant-demo
+
+grant-demo-request-screening-cast:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_GRANT_ROUND GRANT_APPLICATION_ID GRANT_ROUND_WORKFLOW_DEPOSIT_WEI"
+	@REQUESTER_KEY="$${GRANT_REQUESTER_PRIVATE_KEY:-$${SPONSOR_PRIVATE_KEY:-$$DEPLOYER_PRIVATE_KEY}}"; \
+	if [[ -z "$$REQUESTER_KEY" ]]; then echo "Missing required env var: GRANT_REQUESTER_PRIVATE_KEY, SPONSOR_PRIVATE_KEY, or DEPLOYER_PRIVATE_KEY"; exit 1; fi; \
+	echo "Direct cast requestApplicationScreening for GRANT_APPLICATION_ID=$$GRANT_APPLICATION_ID"; \
+	echo "Requester key selection: GRANT_REQUESTER_PRIVATE_KEY, else SPONSOR_PRIVATE_KEY, else DEPLOYER_PRIVATE_KEY"; \
+	cast send "$$VIGILIA_GRANT_ROUND" "requestApplicationScreening(uint256)" "$$GRANT_APPLICATION_ID" \
+		--value "$$GRANT_ROUND_WORKFLOW_DEPOSIT_WEI" \
+		--rpc-url "$$SOMNIA_RPC_URL" \
+		--private-key "$$REQUESTER_KEY" \
+		--legacy \
+		--gas-limit "$(DEMO_GAS_LIMIT)"
+
+grant-demo-request-screening-complete-cast: grant-demo-request-screening-cast
+
+grant-demo-request-screening-needs-review-cast: grant-demo-request-screening-cast
+
+grant-demo-request-screening-incomplete-cast: grant-demo-request-screening-cast
+
+grant-demo-request-screening-malformed-cast: grant-demo-request-screening-cast
 
 grant-demo-manual-screen-complete:
 	DEMO_ACTION=manual-screen-complete $(MAKE) --no-print-directory grant-demo
