@@ -534,9 +534,9 @@ GRANT_COMPLETE_EVIDENCE_URI=https://raw.githubusercontent.com/<org>/<repo>/<bran
 GRANT_NEEDS_REVIEW_EVIDENCE_URI=https://raw.githubusercontent.com/<org>/<repo>/<branch>/demo/evidence/grants/facts-needs-review.json
 GRANT_INCOMPLETE_EVIDENCE_URI=https://raw.githubusercontent.com/<org>/<repo>/<branch>/demo/evidence/grants/facts-incomplete.json
 GRANT_MALFORMED_EVIDENCE_URI=https://raw.githubusercontent.com/<org>/<repo>/<branch>/demo/evidence/grants/facts-malformed.json
-GRANT_COMPLETE_PROJECT_HTML_URI=
-GRANT_NEEDS_REVIEW_PROJECT_HTML_URI=
-GRANT_INCOMPLETE_PROJECT_HTML_URI=
+GRANT_COMPLETE_PROJECT_HTML_URI=https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants/complete-project.html
+GRANT_NEEDS_REVIEW_PROJECT_HTML_URI=https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants/needs-review-project.html
+GRANT_INCOMPLETE_PROJECT_HTML_URI=https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants/incomplete-project.html
 GRANT_ROUND_ID=
 GRANT_APPLICATION_ID=
 GRANT_APPLICATION_IDS=
@@ -624,6 +624,17 @@ files are examples only. The current TwoAgent JSON API flow expects a top-level
 Website Parse / ThreeAgent testing needs real HTML DOM pages, not plain text.
 The HTML fixtures are preparation assets until a real Website Parse callback
 proof exists.
+
+For Website Parse, a normal hosted HTML page is preferred over raw GitHub HTML:
+
+```bash
+export GRANT_COMPLETE_PROJECT_HTML_URI=https://vigilia-demo.vercel.app/grants/complete-project.html
+export GRANT_NEEDS_REVIEW_PROJECT_HTML_URI=https://vigilia-demo.vercel.app/grants/needs-review-project.html
+export GRANT_INCOMPLETE_PROJECT_HTML_URI=https://vigilia-demo.vercel.app/grants/incomplete-project.html
+```
+
+Vercel, Cloudflare Pages, and Netlify are better Website Parse hosts because
+the parser receives a normal HTML page instead of a raw source response.
 
 Recommended public URL templates:
 
@@ -848,6 +859,16 @@ Collect these artifacts for a complete demo proof:
 - application IDs;
 - request IDs;
 - final round/application statuses.
+
+Latest proof note:
+
+```text
+docs/proofs/2026-06-03-grant-round-demo-scenarios.md
+```
+
+This run proved the live TwoAgent lifecycle against public raw GitHub evidence:
+create, fund, submit, request screening, async agent callback to `Complete`,
+select finalist, finalize, and claim.
 
 Required environment:
 
