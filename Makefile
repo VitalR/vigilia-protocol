@@ -10,6 +10,7 @@ MULTI_SETTLEMENT_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaMultiAgentSettlemen
 MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312-two-agent-settlement-hardened.json
 GRANT_ROUND_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaGrantRound.s.sol:DeployVigiliaGrantRound
 GRANT_ROUND_DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312-grant-round.json
+GRANT_ROUND_DEMO_SCRIPT ?= script/demo/VigiliaGrantRoundDemo.s.sol:VigiliaGrantRoundDemo
 MULTI_SETTLEMENT_DEMO_SCRIPT ?= script/demo/VigiliaMultiAgentSettlementDemo.s.sol:VigiliaMultiAgentSettlementDemo
 DEMO_SCRIPT ?= script/demo/VigiliaJsonApiSmokeDemo.s.sol:VigiliaJsonApiSmokeDemo
 CANARY_SCRIPT ?= script/demo/VigiliaAgentCanary.s.sol:VigiliaAgentCanary
@@ -46,7 +47,20 @@ DEMO_CALL_GAS_LIMIT ?= 10000000
 	multi-agent-demo-continue-llm-verification multi-agent-demo-inspect-task multi-agent-demo-approve-task \
 	multi-agent-demo-claim-task multi-agent-demo-retry-verification \
 	grant-round-env-check grant-round-deploy-dry-run grant-round-deploy-somnia \
-	grant-round-show-deployment grant-round-verifier-deposit require-env
+	grant-round-show-deployment grant-round-bind-verifier grant-round-verifier-deposit \
+	grant-round-verify-verifier grant-round-verify-contract grant-round-verify-state \
+	grant-round-verify-all \
+	grant-demo grant-demo-inspect grant-demo-create-round grant-demo-fund-round \
+	grant-demo-submit-application grant-demo-submit-complete grant-demo-submit-needs-review \
+	grant-demo-submit-incomplete grant-demo-submit-malformed grant-demo-request-screening \
+	grant-demo-request-screening-complete grant-demo-request-screening-needs-review \
+	grant-demo-request-screening-incomplete grant-demo-request-screening-malformed \
+	grant-demo-manual-screen-complete grant-demo-manual-screen-needs-review \
+	grant-demo-manual-screen-incomplete grant-demo-select-finalists grant-demo-reject-application \
+	grant-demo-finalize-round grant-demo-claim-prize grant-demo-refund-unallocated \
+	grant-demo-withdraw-pending grant-demo-cancel-round \
+	grant-demo-full-two-agent-happy-path-prep grant-demo-full-two-agent-review-board-prep \
+	require-env
 
 help:
 	@echo "Vigilia Protocol commands"
@@ -117,7 +131,38 @@ help:
 	@echo "GrantRound:"
 	@echo "  make grant-round-env-check       Check GrantRound deployment env vars"
 	@echo "  make grant-round-show-deployment Print GrantRound deployment artifact"
+	@echo "  make grant-round-bind-verifier   Bind a fresh verifier to a GrantRound receiver"
 	@echo "  make grant-round-verifier-deposit Print GrantRound two-agent workflow deposit"
+	@echo "  make grant-round-verify-all      Verify GrantRound contracts and live binding"
+	@echo ""
+	@echo "GrantRound demo:"
+	@echo "  make grant-demo-inspect          Inspect GrantRound/verifier, round, and application state"
+	@echo "  make grant-demo-create-round     Create a TwoAgent grant round by default"
+	@echo "  make grant-demo-fund-round       Fund GRANT_ROUND_ID exactly"
+	@echo "  make grant-demo-submit-complete  Submit public Complete facts evidence"
+	@echo "  make grant-demo-request-screening-complete Request async TwoAgent screening"
+	@echo "  make grant-demo-select-finalists Select GRANT_APPLICATION_IDS after deadline"
+	@echo "  make grant-demo-finalize-round   Finalize so selected finalists can claim"
+	@echo "  make grant-demo-claim-prize      Claim selected GRANT_APPLICATION_ID as applicant"
+	@echo "  make grant-demo-refund-unallocated Credit unallocated sponsor refund"
+	@echo "  make grant-demo-withdraw-pending Withdraw pending sponsor refund"
+	@echo ""
+	@echo "GrantRound current fallback campaign order:"
+	@echo "  make grant-demo-create-round && export GRANT_ROUND_ID=<id>"
+	@echo "  make grant-demo-fund-round"
+	@echo "  export GRANT_APPLICANT_INDEX=1 GRANT_EVIDENCE_URI=$$GRANT_COMPLETE_EVIDENCE_URI; make grant-demo-submit-complete"
+	@echo "  export COMPLETE_APP_ID=<id> GRANT_APPLICATION_ID=$$COMPLETE_APP_ID; make grant-demo-request-screening-complete"
+	@echo "  export GRANT_APPLICANT_INDEX=2 GRANT_EVIDENCE_URI=$$GRANT_NEEDS_REVIEW_EVIDENCE_URI; make grant-demo-submit-needs-review"
+	@echo "  export NEEDS_REVIEW_APP_ID=<id> GRANT_APPLICATION_ID=$$NEEDS_REVIEW_APP_ID; make grant-demo-request-screening-needs-review"
+	@echo "  export GRANT_APPLICANT_INDEX=3 GRANT_EVIDENCE_URI=$$GRANT_COMPLETE_EVIDENCE_URI; make grant-demo-submit-complete"
+	@echo "  export COMPLETE_APP_ID_2=<id> GRANT_APPLICATION_ID=$$COMPLETE_APP_ID_2; make grant-demo-request-screening-complete"
+	@echo "  export GRANT_APPLICANT_INDEX=4 GRANT_EVIDENCE_URI=$$GRANT_INCOMPLETE_EVIDENCE_URI; make grant-demo-submit-incomplete"
+	@echo "  export INCOMPLETE_APP_ID=<id> GRANT_APPLICATION_ID=$$INCOMPLETE_APP_ID; make grant-demo-request-screening-incomplete"
+	@echo "  # Wait for async callbacks, then make grant-demo-inspect"
+	@echo "  export GRANT_APPLICATION_IDS=$$COMPLETE_APP_ID,$$NEEDS_REVIEW_APP_ID,$$COMPLETE_APP_ID_2; make grant-demo-select-finalists"
+	@echo "  make grant-demo-finalize-round"
+	@echo "  export GRANT_APPLICATION_ID=<finalist id>; make grant-demo-claim-prize"
+	@echo "  make grant-demo-refund-unallocated && make grant-demo-withdraw-pending"
 
 fmt:
 	forge fmt
@@ -405,7 +450,7 @@ grant-round-deploy-dry-run:
 
 grant-round-deploy-somnia:
 	@$(MAKE) --no-print-directory grant-round-env-check
-	forge script $(GRANT_ROUND_DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy -vvvv
+	forge script $(GRANT_ROUND_DEPLOY_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --gas-limit $(DEMO_GAS_LIMIT) --gas-estimate-multiplier $(MULTI_SETTLEMENT_GAS_ESTIMATE_MULTIPLIER) --broadcast --legacy --slow -vvvv
 
 grant-round-show-deployment:
 	@if [[ -f "$(GRANT_ROUND_DEPLOYMENT_ARTIFACT)" ]]; then \
@@ -415,9 +460,128 @@ grant-round-show-deployment:
 		exit 1; \
 	fi
 
+grant-round-bind-verifier:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_GRANT_ROUND VIGILIA_GRANT_ROUND_VERIFIER"
+	cast send "$$VIGILIA_GRANT_ROUND_VERIFIER" "bindEscrow(address)" "$$VIGILIA_GRANT_ROUND" --gas-limit $(DEMO_GAS_LIMIT) --legacy --rpc-url "$$SOMNIA_RPC_URL" --private-key "$$DEPLOYER_PRIVATE_KEY"
+
 grant-round-verifier-deposit:
 	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_GRANT_ROUND_VERIFIER"
 	@cast call "$$VIGILIA_GRANT_ROUND_VERIFIER" "minimumRequestDepositForWorkflow(uint8)(uint256)" 3 --rpc-url "$$SOMNIA_RPC_URL"
+
+grant-round-verify-verifier:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_CHAIN_ID SOMNIA_BLOCKSCOUT_API SOMNIA_AGENT_PLATFORM SOMNIA_JSON_API_AGENT_ID SOMNIA_LLM_INFERENCE_AGENT_ID AGENT_SUBCOMMITTEE_SIZE VIGILIA_GRANT_ROUND_VERIFIER"
+	@DEPLOYER=$${DEPLOYER_ADDRESS:-$$(cast wallet address --private-key "$$DEPLOYER_PRIVATE_KEY")}; \
+	LLM_PARSE_ID=$${SOMNIA_LLM_PARSE_WEBSITE_AGENT_ID:-$${SOMNIA_LLM_WEB_AGENT_ID:-0}}; \
+	JSON_PRICE=$${JSON_API_PRICE_PER_VALIDATOR_WEI:-30000000000000000}; \
+	LLM_PRICE=$${LLM_INFERENCE_PRICE_PER_VALIDATOR_WEI:-70000000000000000}; \
+	PARSE_PRICE=$${LLM_PARSE_PRICE_PER_VALIDATOR_WEI:-100000000000000000}; \
+	SELECTOR=$${SOMNIA_VERDICT_SELECTOR:-verdict}; \
+	ARGS=$$(cast abi-encode "constructor((address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,string,bool))" "($$SOMNIA_AGENT_PLATFORM,$$DEPLOYER,$$SOMNIA_JSON_API_AGENT_ID,$$SOMNIA_LLM_INFERENCE_AGENT_ID,$$LLM_PARSE_ID,$$AGENT_SUBCOMMITTEE_SIZE,$$JSON_PRICE,$$LLM_PRICE,$$PARSE_PRICE,$$SELECTOR,true)"); \
+	forge verify-contract "$$VIGILIA_GRANT_ROUND_VERIFIER" src/VigiliaMultiAgentVerifier.sol:VigiliaMultiAgentVerifier --chain-id "$$SOMNIA_CHAIN_ID" --verifier blockscout --verifier-url "$$SOMNIA_BLOCKSCOUT_API" --constructor-args "$$ARGS"
+
+grant-round-verify-contract:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_CHAIN_ID SOMNIA_BLOCKSCOUT_API VIGILIA_GRANT_ROUND VIGILIA_GRANT_ROUND_VERIFIER"
+	@ARGS=$$(cast abi-encode "constructor(address)" "$$VIGILIA_GRANT_ROUND_VERIFIER"); \
+	forge verify-contract "$$VIGILIA_GRANT_ROUND" src/VigiliaGrantRound.sol:VigiliaGrantRound --chain-id "$$SOMNIA_CHAIN_ID" --verifier blockscout --verifier-url "$$SOMNIA_BLOCKSCOUT_API" --constructor-args "$$ARGS"
+
+grant-round-verify-state:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_GRANT_ROUND VIGILIA_GRANT_ROUND_VERIFIER"
+	@BOUND=$$(cast call "$$VIGILIA_GRANT_ROUND_VERIFIER" "escrow()(address)" --rpc-url "$$SOMNIA_RPC_URL"); \
+	CONFIGURED=$$(cast call "$$VIGILIA_GRANT_ROUND" "verifier()(address)" --rpc-url "$$SOMNIA_RPC_URL"); \
+	DEPOSIT=$$(cast call "$$VIGILIA_GRANT_ROUND_VERIFIER" "minimumRequestDepositForWorkflow(uint8)(uint256)" 3 --rpc-url "$$SOMNIA_RPC_URL"); \
+	BOUND_LC=$$(printf "%s" "$$BOUND" | tr '[:upper:]' '[:lower:]'); \
+	CONFIGURED_LC=$$(printf "%s" "$$CONFIGURED" | tr '[:upper:]' '[:lower:]'); \
+	ROUND_LC=$$(printf "%s" "$$VIGILIA_GRANT_ROUND" | tr '[:upper:]' '[:lower:]'); \
+	VERIFIER_LC=$$(printf "%s" "$$VIGILIA_GRANT_ROUND_VERIFIER" | tr '[:upper:]' '[:lower:]'); \
+	echo "grantRound=$$VIGILIA_GRANT_ROUND"; \
+	echo "verifier=$$VIGILIA_GRANT_ROUND_VERIFIER"; \
+	echo "verifier.escrow=$$BOUND"; \
+	echo "grantRound.verifier=$$CONFIGURED"; \
+	echo "twoAgentWorkflowDeposit=$$DEPOSIT"; \
+	if [[ "$$BOUND_LC" != "$$ROUND_LC" ]]; then echo "GrantRound binding mismatch"; exit 1; fi; \
+	if [[ "$$CONFIGURED_LC" != "$$VERIFIER_LC" ]]; then echo "GrantRound verifier mismatch"; exit 1; fi
+
+grant-round-verify-all: grant-round-verify-verifier grant-round-verify-contract grant-round-verify-state
+
+grant-demo:
+	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL VIGILIA_GRANT_ROUND VIGILIA_GRANT_ROUND_VERIFIER"
+	forge script $(GRANT_ROUND_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" --broadcast --legacy --skip-simulation --gas-limit $(DEMO_GAS_LIMIT) -vvvv
+
+grant-demo-inspect:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_GRANT_ROUND VIGILIA_GRANT_ROUND_VERIFIER"
+	DEMO_ACTION=inspect forge script $(GRANT_ROUND_DEMO_SCRIPT) --rpc-url "$$SOMNIA_RPC_URL" -vvvv
+
+grant-demo-create-round:
+	DEMO_ACTION=create-round $(MAKE) --no-print-directory grant-demo
+
+grant-demo-fund-round:
+	DEMO_ACTION=fund-round $(MAKE) --no-print-directory grant-demo
+
+grant-demo-submit-application:
+	DEMO_ACTION=submit-application $(MAKE) --no-print-directory grant-demo
+
+grant-demo-submit-complete:
+	DEMO_ACTION=submit-application-complete $(MAKE) --no-print-directory grant-demo
+
+grant-demo-submit-needs-review:
+	DEMO_ACTION=submit-application-needs-review $(MAKE) --no-print-directory grant-demo
+
+grant-demo-submit-incomplete:
+	DEMO_ACTION=submit-application-incomplete $(MAKE) --no-print-directory grant-demo
+
+grant-demo-submit-malformed:
+	DEMO_ACTION=submit-application-malformed $(MAKE) --no-print-directory grant-demo
+
+grant-demo-request-screening:
+	DEMO_ACTION=request-screening $(MAKE) --no-print-directory grant-demo
+
+grant-demo-request-screening-complete:
+	DEMO_ACTION=request-screening-complete $(MAKE) --no-print-directory grant-demo
+
+grant-demo-request-screening-needs-review:
+	DEMO_ACTION=request-screening-needs-review $(MAKE) --no-print-directory grant-demo
+
+grant-demo-request-screening-incomplete:
+	DEMO_ACTION=request-screening-incomplete $(MAKE) --no-print-directory grant-demo
+
+grant-demo-request-screening-malformed:
+	DEMO_ACTION=request-screening-malformed $(MAKE) --no-print-directory grant-demo
+
+grant-demo-manual-screen-complete:
+	DEMO_ACTION=manual-screen-complete $(MAKE) --no-print-directory grant-demo
+
+grant-demo-manual-screen-needs-review:
+	DEMO_ACTION=manual-screen-needs-review $(MAKE) --no-print-directory grant-demo
+
+grant-demo-manual-screen-incomplete:
+	DEMO_ACTION=manual-screen-incomplete $(MAKE) --no-print-directory grant-demo
+
+grant-demo-select-finalists:
+	DEMO_ACTION=select-finalists $(MAKE) --no-print-directory grant-demo
+
+grant-demo-reject-application:
+	DEMO_ACTION=reject-application $(MAKE) --no-print-directory grant-demo
+
+grant-demo-finalize-round:
+	DEMO_ACTION=finalize-round $(MAKE) --no-print-directory grant-demo
+
+grant-demo-claim-prize:
+	DEMO_ACTION=claim-prize $(MAKE) --no-print-directory grant-demo
+
+grant-demo-refund-unallocated:
+	DEMO_ACTION=refund-unallocated $(MAKE) --no-print-directory grant-demo
+
+grant-demo-withdraw-pending:
+	DEMO_ACTION=withdraw-pending $(MAKE) --no-print-directory grant-demo
+
+grant-demo-cancel-round:
+	DEMO_ACTION=cancel-round $(MAKE) --no-print-directory grant-demo
+
+grant-demo-full-two-agent-happy-path-prep:
+	DEMO_ACTION=full-two-agent-happy-path-prep $(MAKE) --no-print-directory grant-demo
+
+grant-demo-full-two-agent-review-board-prep:
+	DEMO_ACTION=full-two-agent-review-board-prep $(MAKE) --no-print-directory grant-demo
 
 multi-settlement-verifier-deposit:
 	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER"

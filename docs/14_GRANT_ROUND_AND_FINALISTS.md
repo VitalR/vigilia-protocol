@@ -83,7 +83,7 @@ enum ScreeningMode {
 
 ### TwoAgent
 
-Default live mode until Website Parse is proven reliable against real HTML.
+Current proven fallback while Website Parse is being proven against real hosted HTML.
 
 ```text
 JSON API facts
@@ -92,13 +92,22 @@ JSON API facts
 -> finalist claims
 ```
 
-This reuses the proven v0.2.3 architecture without reusing the deployed v0.2.3 verifier instance. A future GrantRound deployment should use a fresh verifier bound to the GrantRound receiver.
+This reuses the proven v0.2.3 architecture without reusing the deployed v0.2.3 verifier instance. GrantRound deployments should use a fresh verifier bound to the GrantRound receiver.
 
 The hardened v0.2.3 verifier is already part of the fixed-work escrow proof and should not be reused for GrantRound. `VigiliaMultiAgentVerifier` binds to one receiver; GrantRound has a different receiver contract and interprets `taskId` as `roundId` and `submissionId` as `applicationId`.
 
+The current Somnia testnet GrantRound deployment follows that model:
+
+```text
+GrantRound: 0xaA20C6C3F37f5E97cb2fed1c14575b76EE4F3C9a
+Fresh verifier: 0x44276D0d3149a9915fC2a4d5E6F0f66eD74185C3
+Proven workflow: JsonFactsToLlmVerdict
+Current proven fallback: TwoAgent
+```
+
 ### ThreeAgent
 
-Preferred future mode after Website Parse succeeds reliably against real HTML.
+Preferred target mode when Website Parse succeeds reliably against real HTML.
 
 ```text
 JSON API facts
@@ -108,7 +117,7 @@ JSON API facts
 -> finalist claims
 ```
 
-The current contract stores `ThreeAgent` at the round level, but request-time support should remain gated until the verifier exposes a proven `JsonFactsAndWebsiteToLlmVerdict` workflow. Do not claim this mode is live until there is a real Website Parse proof.
+The current contract stores `ThreeAgent` at the round level, but request-time support remains gated until the verifier exposes a proven `JsonFactsAndWebsiteToLlmVerdict` workflow. Do not claim this mode is live until there is a real Website Parse proof.
 
 ### Manual Fallback / Recovery
 
@@ -201,12 +210,13 @@ Implemented now:
 - judge/sponsor finalist selection;
 - finalist claims;
 - unallocated sponsor refunds;
-- safe cancellation before applications make cancellation unsafe.
+- safe cancellation before applications make cancellation unsafe;
+- deployed fresh GrantRound-bound multi-agent verifier on Somnia testnet;
+- `VigiliaGrantRoundDemo` script and Makefile workflow for the current proven TwoAgent fallback campaign.
 
 Future work:
 
-- fresh GrantRound-bound multi-agent verifier deployment;
-- proven Website Parse workflow before making `ThreeAgent` the live default;
+- proven Website Parse workflow before presenting `ThreeAgent` as the flagship live demo;
 - frontend review board;
 - Data Streams publisher for round/application/finalist history;
 - optional tiered prizes;

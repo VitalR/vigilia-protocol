@@ -178,10 +178,10 @@ require a v0.2.0 verifier/coordinator with the correct payloads and result handl
 Local examples live under `demo/evidence/`:
 
 ```text
-demo/evidence/complete.json
-demo/evidence/needs-review.json
-demo/evidence/incomplete.json
-demo/evidence/malformed.json
+demo/evidence/escrow/complete.json
+demo/evidence/escrow/needs-review.json
+demo/evidence/escrow/incomplete.json
+demo/evidence/escrow/malformed.json
 ```
 
 For live Somnia tests, host the selected JSON from a public URL, such as a GitHub raw URL, Vercel static file, or another
@@ -603,7 +603,7 @@ make platform-check
 make deployment-addresses
 make verifier-deposit
 make evidence-url
-curl -sS -i https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/complete.json
+curl -sS -i https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/escrow/complete.json
 curl -sS -i https://httpbin.org/base64/eyJ2ZXJkaWN0IjoiQ29tcGxldGUifQ==
 curl -sS -i https://httpbin.org/base64/eyJzdGF0dXMiOiJ1bmtub3duIn0=
 cast call 0x880154CCa9C3fddA472250B16a1DF8118E3c0960 "escrow()(address)" --rpc-url https://api.infra.testnet.somnia.network/
@@ -669,7 +669,7 @@ The deployed contract wiring is healthy:
 
 - `make evidence-url` failed because `VIGILIA_EVIDENCE_JSON_URL` is not set.
 - The candidate GitHub raw URL
-  `https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/complete.json` returned `404: Not Found`,
+  `https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/escrow/complete.json` returned `404: Not Found`,
   because the demo evidence fixture is not public on `main` yet.
 - `https://httpbin.org/base64/eyJ2ZXJkaWN0IjoiQ29tcGxldGUifQ==` returned exactly `{"verdict":"Complete"}` and was used
   as the public happy-path evidence endpoint.
