@@ -860,13 +860,18 @@ make grant-demo-manual-screen-complete
 
 This does not select a winner or move funds.
 
-## ThreeAgent Fresh Deployment Probe
+## ThreeAgent v0.4 Demo
 
-Use a fresh v0.4.0 GrantRound/verifier pair for ThreeAgent. Do not point this
-scenario at the older proven TwoAgent deployment:
+Use the fresh v0.4.0 GrantRound/verifier pair for ThreeAgent. Do not point this
+scenario at the older v0.3 TwoAgent deployment:
 
 ```bash
-GRANT_SCREENING_MODE=1 make grant-demo-create-round
+export VIGILIA_GRANT_ROUND=0x5aE1918Dcaa0A00a1d647e1c9946F7FF3fB61679
+export VIGILIA_GRANT_ROUND_VERIFIER=0xb0a1cdf062B4c295fC2A00F4bf1C84062F40d8e4
+export GRANT_SCREENING_MODE=1
+export GRANT_ROUND_THREE_AGENT_WORKFLOW_DEPOSIT_WEI=810000000000000000
+
+make grant-demo-create-round
 export GRANT_ROUND_ID=<round id>
 make grant-demo-fund-round
 export GRANT_EVIDENCE_URI=$GRANT_COMPLETE_BUNDLE_EVIDENCE_URI
@@ -881,13 +886,14 @@ Expected fresh v0.4.0 sequence:
 JSON facts callback -> JSON websiteURI callback -> Website Parse callback -> LLM callback -> GrantRound verdict
 ```
 
-If any step fails, document ThreeAgent as not proven and use the already-proven
-TwoAgent path for the final live demo.
+The June 3 v0.4 proof completed this path through finalist selection,
+finalization, and claim. If a future live demo has an agent/RPC issue, use the
+already-proven TwoAgent path as the fallback.
 
 ## Proving Website Parse
 
-Before switching the flagship demo to `GRANT_SCREENING_MODE=1`, collect proof
-that all of the following are true:
+For any new deployment, collect proof that all of the following are true before
+calling ThreeAgent proven on that deployment:
 
 - a real HTML project page is hosted publicly;
 - Website Parse succeeds against that page;
@@ -902,20 +908,21 @@ round, applicant evidence, Website Parse callback, LLM bounded verdict,
 GrantRound `recordVerdict`, finalist selection by judge/sponsor, finalization,
 and claim.
 
-If these are not all true, keep the final live demo on `GRANT_SCREENING_MODE=0`
-as the safe Somnia-powered fallback.
+If these are not all true for a new deployment, keep the final live demo on
+`GRANT_SCREENING_MODE=0` as the safe Somnia-powered fallback.
 
 Current status from the June 3 proof:
 
 ```text
-TwoAgent GrantRound: proven end to end.
+TwoAgent GrantRound: proven end to end on v0.3 and v0.4.
 Website Parse canary: succeeded against raw GitHub HTML.
-ThreeAgent GrantRound: implemented in source/tests; fresh live E2E proof still required.
+ThreeAgent GrantRound: proven end to end on fresh v0.4 using raw GitHub bundle and HTML fixtures.
 ```
 
-The previous blocker is addressed in source by `JsonFactsAndWebsiteToLlmVerdict`
-and `VigiliaGrantRound._workflowFor(ThreeAgent)`. The remaining blocker is live
-deployment and a full E2E ThreeAgent proof.
+The previous blocker was addressed in source by
+`JsonFactsAndWebsiteToLlmVerdict` and
+`VigiliaGrantRound._workflowFor(ThreeAgent)`. The fresh v0.4 deployment then
+proved the full E2E path.
 
 ## Proof Checklist
 
@@ -949,10 +956,9 @@ applications, judge/sponsor selected three finalists, all selected finalists
 claimed, and the Incomplete application remained unselected and unclaimed.
 
 The second note records the fresh v0.4.0 ThreeAgent-capable deployment. It is
-deployed and bound, and source/tests cover the full workflow, but the live
-ThreeAgent E2E request failed closed at the root JSON API stage when using a
-temporary `httpbin` evidence bundle. Do not claim ThreeAgent is live until a
-public `bundle-*.json` URL produces the final GrantRound verdict and claim.
+deployed, bound, verified on Blockscout, and proven end to end with public raw
+GitHub `bundle-*.json` URLs. It also records the earlier failed `httpbin`
+attempt as a fail-closed operational caveat.
 
 Required environment:
 
@@ -985,5 +991,7 @@ SOMNIA_BLOCKSCOUT_API
 - Exact full-pool funding only.
 - No application update function in this MVP.
 - No explicit override path for selecting `Incomplete`.
-- The fresh v0.4.0 GrantRound/verifier pair exposes `JsonFactsAndWebsiteToLlmVerdict`, but full live ThreeAgent E2E is not yet proven.
-- Deploy and demo scripts exist for GrantRound plus a fresh verifier that supports both TwoAgent and ThreeAgent workflows.
+- Native raw GitHub HTML worked for the June 3 proof, but normal hosted HTML
+  on Vercel, Cloudflare Pages, or Netlify is still preferable for public demos.
+- Deploy and demo scripts exist for GrantRound plus a fresh verifier that
+  supports both TwoAgent and ThreeAgent workflows.
