@@ -1,0 +1,8 @@
+{
+  "facts": "repo_exists=true; readme_setup=true; deployment_address_present=true; demo_url_present=true; tests_passed=true",
+  "websiteURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants/complete-project.html",
+  "projectURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants/complete-project.html",
+  "repoURI": "https://github.com/VitalR/vigilia-protocol",
+  "demoURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants/complete-project.html",
+  "summary": "Complete demo project with repo, README/setup docs, deployment address, demo URL, and passing tests."
+}

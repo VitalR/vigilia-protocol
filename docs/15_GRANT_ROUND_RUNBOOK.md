@@ -98,9 +98,9 @@ ThreeAgent  JSON API facts + Website Parse real HTML -> LLM Inference bounded ve
 
 Manual screening is not a round mode. It is a fallback/recovery function for sponsor or judge.
 
-### ThreeAgent Target Mode
+### ThreeAgent Mode
 
-ThreeAgent is the preferred GrantRound story if Website Parse works in the deployed verifier setup:
+ThreeAgent is the preferred GrantRound story for a fresh ThreeAgent-capable deployment:
 
 ```text
 JSON API facts
@@ -110,17 +110,17 @@ JSON API facts
 -> finalist claims
 ```
 
-Do not claim ThreeAgent is live unless there is a public hosted HTML page, a successful Website Parse callback, LLM consumption of the extracted content, and a final GrantRound verdict callback visible in receipts or `inspect`.
+Do not claim ThreeAgent is live unless there is a public hosted HTML page, a successful Website Parse callback, LLM consumption of the extracted content, a final GrantRound verdict callback visible in receipts or `inspect`, finalist selection, finalization, and claim.
 
 ### TwoAgent Fallback Mode
 
-TwoAgent is the current proven Somnia-powered fallback:
+TwoAgent is the current proven Somnia-powered fallback and remains supported on fresh deployments:
 
 ```text
 JSON API facts -> LLM Inference bounded verdict -> judge-selected finalists -> claims
 ```
 
-The deployed GrantRound verifier supports this path through `JsonFactsToLlmVerdict`.
+The proven deployed GrantRound verifier supports this path through `JsonFactsToLlmVerdict`.
 
 ### Manual Recovery
 
@@ -199,7 +199,13 @@ For `TwoAgent`, it requests:
 JsonFactsToLlmVerdict
 ```
 
-For `ThreeAgent`, the current implementation reverts with `UnsupportedScreeningMode` until a fresh verifier exposes a proven Website Parse workflow.
+For `ThreeAgent`, fresh v0.4.0 source maps to:
+
+```text
+JsonFactsAndWebsiteToLlmVerdict
+```
+
+This workflow fetches `facts`, fetches `websiteURI`, runs Website Parse, then sends both JSON facts and parsed website evidence into a final bounded LLM classification. Existing TwoAgent deployments do not expose this workflow; deploy a fresh GrantRound/verifier pair for live ThreeAgent proof.
 
 The request stores the active request ID and marks the application `ScreeningRequested`.
 
@@ -854,24 +860,29 @@ make grant-demo-manual-screen-complete
 
 This does not select a winner or move funds.
 
-## ThreeAgent Gated Probe
+## ThreeAgent Fresh Deployment Probe
 
-Create a ThreeAgent round only to prove the current deployed verifier gates the
-request path until Website Parse workflow support is ready:
+Use a fresh v0.4.0 GrantRound/verifier pair for ThreeAgent. Do not point this
+scenario at the older proven TwoAgent deployment:
 
 ```bash
 GRANT_SCREENING_MODE=1 make grant-demo-create-round
 export GRANT_ROUND_ID=<round id>
 make grant-demo-fund-round
-export GRANT_EVIDENCE_URI=<public HTML-backed evidence URL>
-make grant-demo-submit-application
+export GRANT_EVIDENCE_URI=$GRANT_COMPLETE_BUNDLE_EVIDENCE_URI
+make grant-demo-submit-three-agent-complete
 export GRANT_APPLICATION_ID=<app id>
-make grant-demo-request-screening
+make grant-demo-request-screening-three-agent-cast
 ```
 
-`requestApplicationScreening` is expected to revert with
-`UnsupportedScreeningMode(ThreeAgent)` until the verifier supports
-`JsonFactsAndWebsiteToLlmVerdict`.
+Expected fresh v0.4.0 sequence:
+
+```text
+JSON facts callback -> JSON websiteURI callback -> Website Parse callback -> LLM callback -> GrantRound verdict
+```
+
+If any step fails, document ThreeAgent as not proven and use the already-proven
+TwoAgent path for the final live demo.
 
 ## Proving Website Parse
 
@@ -899,13 +910,12 @@ Current status from the June 3 proof:
 ```text
 TwoAgent GrantRound: proven end to end.
 Website Parse canary: succeeded against raw GitHub HTML.
-ThreeAgent GrantRound: not proven.
+ThreeAgent GrantRound: implemented in source/tests; fresh live E2E proof still required.
 ```
 
-The exact blocker is verifier workflow support. `SettlementWorkflow` does not
-yet include `JsonFactsAndWebsiteToLlmVerdict`, and
-`VigiliaGrantRound._workflowFor(ThreeAgent)` still reverts with
-`UnsupportedScreeningMode(ThreeAgent)`.
+The previous blocker is addressed in source by `JsonFactsAndWebsiteToLlmVerdict`
+and `VigiliaGrantRound._workflowFor(ThreeAgent)`. The remaining blocker is live
+deployment and a full E2E ThreeAgent proof.
 
 ## Proof Checklist
 
@@ -930,12 +940,19 @@ Latest proof note:
 
 ```text
 docs/proofs/2026-06-03-grant-round-demo-scenarios.md
+docs/proofs/2026-06-03-grant-round-three-agent-proof.md
 ```
 
-This run proved the live TwoAgent lifecycle against public raw GitHub evidence,
-including the full four-applicant campaign: agents screened applications,
-judge/sponsor selected three finalists, all selected finalists claimed, and the
-Incomplete application remained unselected and unclaimed.
+The first run proved the live TwoAgent lifecycle against public raw GitHub
+evidence, including the full four-applicant campaign: agents screened
+applications, judge/sponsor selected three finalists, all selected finalists
+claimed, and the Incomplete application remained unselected and unclaimed.
+
+The second note records the fresh v0.4.0 ThreeAgent-capable deployment. It is
+deployed and bound, and source/tests cover the full workflow, but the live
+ThreeAgent E2E request failed closed at the root JSON API stage when using a
+temporary `httpbin` evidence bundle. Do not claim ThreeAgent is live until a
+public `bundle-*.json` URL produces the final GrantRound verdict and claim.
 
 Required environment:
 
@@ -968,5 +985,5 @@ SOMNIA_BLOCKSCOUT_API
 - Exact full-pool funding only.
 - No application update function in this MVP.
 - No explicit override path for selecting `Incomplete`.
-- `ThreeAgent` is stored as a round mode but request-time gated in the current deployed verifier because `JsonFactsAndWebsiteToLlmVerdict` is not yet exposed.
-- Deploy and demo scripts exist for GrantRound plus a fresh two-agent verifier.
+- The fresh v0.4.0 GrantRound/verifier pair exposes `JsonFactsAndWebsiteToLlmVerdict`, but full live ThreeAgent E2E is not yet proven.
+- Deploy and demo scripts exist for GrantRound plus a fresh verifier that supports both TwoAgent and ThreeAgent workflows.

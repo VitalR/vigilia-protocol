@@ -6,6 +6,7 @@ import { IJsonApiAgent } from "../src/interfaces/IJsonApiAgent.sol";
 import { ILlmInferenceAgent } from "../src/interfaces/ILlmInferenceAgent.sol";
 import { ILlmParseWebsiteAgent } from "../src/interfaces/ILlmParseWebsiteAgent.sol";
 import { ISomniaAgentRequester } from "../src/interfaces/ISomniaAgentRequester.sol";
+import { VigiliaAgentStringLib } from "../src/libraries/VigiliaAgentStringLib.sol";
 import { VigiliaAgentTypes } from "../src/types/VigiliaAgentTypes.sol";
 import { VigiliaEscrow } from "../src/VigiliaEscrow.sol";
 import { VigiliaMultiAgentVerifier } from "../src/VigiliaMultiAgentVerifier.sol";
@@ -93,6 +94,8 @@ contract VigiliaMultiAgentVerifierTest is Test {
     string private constant _WORKFLOW_LLM_SYSTEM =
         "You are a strict Vigilia work verifier. Return exactly one allowed value. Do not explain.";
     string private constant _WEBSITE_URL = "https://example.com/";
+    string private constant _WEBSITE_EXTRACT =
+        "repo present; README setup present; deployment address present; demo URL present; tests pass";
     string private constant _WEBSITE_INSTRUCTION = "Return Complete, NeedsReview, or Incomplete.";
     string private constant _WEBSITE_KEY = "verdict";
     string private constant _WEBSITE_DESCRIPTION = "Vigilia milestone verification verdict. Return one bounded value.";
@@ -110,6 +113,13 @@ contract VigiliaMultiAgentVerifierTest is Test {
     address private _requester = address(0xCA11A2);
     address private _attacker = address(0xA77A);
 
+    uint256 private _recordedTaskId;
+    uint256 private _recordedSubmissionId;
+    bytes32 private _recordedRequestId;
+    VigiliaTypes.VerificationVerdict private _recordedVerdict;
+    string private _recordedNotesURI;
+    bool private _recordedFailure;
+
     function setUp() public {
         _platform = new MockSomniaAgentRequester(_PLATFORM_DEPOSIT, _PLATFORM_DEPOSIT);
         _verifier = _newVerifier(true, true);
@@ -121,6 +131,35 @@ contract VigiliaMultiAgentVerifierTest is Test {
         vm.deal(_client, 100 ether);
         vm.deal(_contractor, 100 ether);
         vm.deal(_requester, 100 ether);
+    }
+
+    function recordVerdict(
+        uint256 _taskId,
+        uint256 _submissionId,
+        bytes32 _requestId,
+        VigiliaTypes.VerificationVerdict _verdict,
+        string calldata _notesURI
+    ) external {
+        _recordedTaskId = _taskId;
+        _recordedSubmissionId = _submissionId;
+        _recordedRequestId = _requestId;
+        _recordedVerdict = _verdict;
+        _recordedNotesURI = _notesURI;
+        _recordedFailure = false;
+    }
+
+    function recordVerificationFailure(
+        uint256 _taskId,
+        uint256 _submissionId,
+        bytes32 _requestId,
+        string calldata _failureNotesURI
+    ) external {
+        _recordedTaskId = _taskId;
+        _recordedSubmissionId = _submissionId;
+        _recordedRequestId = _requestId;
+        _recordedVerdict = VigiliaTypes.VerificationVerdict.Unknown;
+        _recordedNotesURI = _failureNotesURI;
+        _recordedFailure = true;
     }
 
     function test_RequestJsonApiCanary_EncodesFetchStringPayload() public {
@@ -281,6 +320,169 @@ contract VigiliaMultiAgentVerifierTest is Test {
         );
     }
 
+    function test_MinimumRequestDepositForWorkflow_ThreeAgentSumsJsonWebsiteParseAndLlm() public view {
+        assertEq(
+            _verifier.minimumRequestDepositForWorkflow(
+                VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict
+            ),
+            _threeAgentDeposit()
+        );
+    }
+
+    function test_RequestVerification_ThreeAgentStartsJsonFactsRequest() public {
+        VigiliaMultiAgentVerifier verifier = _newReceiverBoundVerifier();
+
+        vm.prank(address(this));
+        bytes32 requestId = verifier.requestVerification{ value: _threeAgentDeposit() }(
+            7,
+            8,
+            _requester,
+            _JSON_URL,
+            _REQUIREMENTS_URI,
+            VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict
+        );
+
+        assertEq(uint256(requestId), 1);
+        assertEq(_platform.lastAgentId(), _JSON_AGENT_ID);
+        assertEq(
+            _platform.lastPayload(),
+            abi.encodeWithSelector(IJsonApiAgent.fetchString.selector, _JSON_URL, _FACTS_SELECTOR)
+        );
+        assertEq(_platform.lastValue(), _jsonDeposit());
+        (
+            ,,,,,
+            VigiliaAgentTypes.SettlementWorkflow workflow,
+            VigiliaAgentTypes.VerificationStage stage,,,,,,
+            uint256 prepaidBudget,,,,,
+        ) = verifier.requests(1);
+        assertEq(uint256(workflow), uint256(VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict));
+        assertEq(uint256(stage), uint256(VigiliaAgentTypes.VerificationStage.JsonFacts));
+        assertEq(prepaidBudget, _jsonDeposit() + _llmParseWebsiteDeposit() + _llmInferenceDeposit());
+    }
+
+    function test_HandleResponse_ThreeAgentFactsStartsWebsiteURIRequest() public {
+        VigiliaMultiAgentVerifier verifier = _requestThreeAgentDirect();
+
+        _callbackTo(verifier, 1, _FACTS);
+
+        assertEq(_platform.lastAgentId(), _JSON_AGENT_ID);
+        assertEq(
+            _platform.lastPayload(), abi.encodeWithSelector(IJsonApiAgent.fetchString.selector, _JSON_URL, "websiteURI")
+        );
+        assertEq(_platform.lastValue(), _jsonDeposit());
+        (
+            ,,,,,,
+            VigiliaAgentTypes.VerificationStage stage,,,
+            string memory facts,,,
+            uint256 prepaidBudget,
+            uint256 parentRequestId,,,,
+        ) = verifier.requests(2);
+        assertEq(uint256(stage), uint256(VigiliaAgentTypes.VerificationStage.JsonWebsiteURI));
+        assertEq(facts, _FACTS);
+        assertEq(prepaidBudget, _llmParseWebsiteDeposit() + _llmInferenceDeposit());
+        assertEq(parentRequestId, 1);
+    }
+
+    function test_HandleResponse_ThreeAgentWebsiteURIStartsWebsiteParse() public {
+        VigiliaMultiAgentVerifier verifier = _requestThreeAgentDirect();
+
+        _callbackTo(verifier, 1, _FACTS);
+        _callbackTo(verifier, 2, _WEBSITE_URL);
+
+        assertEq(_platform.lastAgentId(), _LLM_PARSE_WEBSITE_AGENT_ID);
+        assertEq(_platform.lastValue(), _llmParseWebsiteDeposit());
+        (
+            ,,,,,,
+            VigiliaAgentTypes.VerificationStage stage,,,,
+            string memory websiteURI,,
+            uint256 prepaidBudget,
+            uint256 parentRequestId,,,,
+        ) = verifier.requests(3);
+        assertEq(uint256(stage), uint256(VigiliaAgentTypes.VerificationStage.WebsiteParse));
+        assertEq(websiteURI, _WEBSITE_URL);
+        assertEq(prepaidBudget, _llmInferenceDeposit());
+        assertEq(parentRequestId, 1);
+    }
+
+    function test_HandleResponse_ThreeAgentWebsiteParseStartsLlm() public {
+        VigiliaMultiAgentVerifier verifier = _requestThreeAgentDirect();
+
+        _callbackTo(verifier, 1, _FACTS);
+        _callbackTo(verifier, 2, _WEBSITE_URL);
+        _callbackTo(verifier, 3, _WEBSITE_EXTRACT);
+
+        string[] memory allowedValues = _allowedValues();
+        string memory expectedPrompt = VigiliaAgentStringLib.threeAgentGrantVerdictPrompt(
+            _REQUIREMENTS_URI, _FACTS, _WEBSITE_EXTRACT, _JSON_URL, _WEBSITE_URL
+        );
+        assertEq(_platform.lastAgentId(), _LLM_INFERENCE_AGENT_ID);
+        assertEq(
+            _platform.lastPayload(),
+            abi.encodeWithSelector(
+                ILlmInferenceAgent.inferString.selector,
+                expectedPrompt,
+                "You are a strict grant application screening classifier. Return exactly one allowed value: Complete, NeedsReview, or Incomplete. Do not explain.",
+                false,
+                allowedValues
+            )
+        );
+        assertEq(_platform.lastValue(), _llmInferenceDeposit());
+    }
+
+    function test_HandleResponse_ThreeAgentLlmCompleteForwardsRootRequestId() public {
+        VigiliaMultiAgentVerifier verifier = _requestThreeAgentDirect();
+
+        _callbackTo(verifier, 1, _FACTS);
+        _callbackTo(verifier, 2, _WEBSITE_URL);
+        _callbackTo(verifier, 3, _WEBSITE_EXTRACT);
+        _callbackTo(verifier, 4, "Complete");
+
+        assertFalse(_recordedFailure);
+        assertEq(_recordedTaskId, 7);
+        assertEq(_recordedSubmissionId, 8);
+        assertEq(_recordedRequestId, bytes32(uint256(1)));
+        assertEq(uint256(_recordedVerdict), uint256(VigiliaTypes.VerificationVerdict.Complete));
+        assertEq(_recordedNotesURI, "somnia-agent-request:4");
+    }
+
+    function test_HandleResponse_ThreeAgentMissingWebsiteURIRecordsVerificationFailed() public {
+        VigiliaMultiAgentVerifier verifier = _requestThreeAgentDirect();
+
+        _callbackTo(verifier, 1, _FACTS);
+        _callbackTo(verifier, 2, "");
+
+        assertTrue(_recordedFailure);
+        assertEq(_recordedRequestId, bytes32(uint256(1)));
+        assertEq(_recordedNotesURI, "somnia-agent-request:2:missing-website-uri");
+        assertEq(verifier.pendingVerificationRefunds(_requester), _llmParseWebsiteDeposit() + _llmInferenceDeposit());
+    }
+
+    function test_HandleResponse_ThreeAgentWebsiteParseFailureRecordsVerificationFailed() public {
+        VigiliaMultiAgentVerifier verifier = _requestThreeAgentDirect();
+
+        _callbackTo(verifier, 1, _FACTS);
+        _callbackTo(verifier, 2, _WEBSITE_URL);
+        _statusCallbackTo(verifier, 3, ISomniaAgentRequester.ResponseStatus.Failed);
+
+        assertTrue(_recordedFailure);
+        assertEq(_recordedRequestId, bytes32(uint256(1)));
+        assertEq(_recordedNotesURI, "somnia-agent-request:3");
+        assertEq(verifier.pendingVerificationRefunds(_requester), _llmInferenceDeposit());
+    }
+
+    function test_HandleResponse_ThreeAgentLlmUnknownRecordsVerificationFailed() public {
+        VigiliaMultiAgentVerifier verifier = _requestThreeAgentDirect();
+
+        _callbackTo(verifier, 1, _FACTS);
+        _callbackTo(verifier, 2, _WEBSITE_URL);
+        _callbackTo(verifier, 3, _WEBSITE_EXTRACT);
+        _callbackTo(verifier, 4, "Maybe");
+
+        assertTrue(_recordedFailure);
+        assertEq(_recordedRequestId, bytes32(uint256(1)));
+        assertEq(_recordedNotesURI, "somnia-agent-request:4:unknown-verdict");
+    }
+
     function test_SubmitWork_JsonFactsRequestUsesFactsSelectorAndKeepsLlmBudget() public {
         _submitWork();
 
@@ -290,7 +492,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
             abi.encodeWithSelector(IJsonApiAgent.fetchString.selector, _JSON_URL, _FACTS_SELECTOR)
         );
         assertEq(_platform.lastValue(), _jsonDeposit());
-        (,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
+        (,,,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
         assertEq(prepaidBudget, _llmInferenceDeposit());
     }
 
@@ -315,7 +517,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
             )
         );
         assertEq(_platform.lastValue(), _llmInferenceDeposit());
-        (,,,,,,, string memory evidenceURI, string memory requirementsURI, string memory facts,,,,,,) =
+        (,,,,,,, string memory evidenceURI, string memory requirementsURI, string memory facts,,,,,,,,) =
             _verifier.requests(2);
         assertEq(evidenceURI, _JSON_URL);
         assertEq(requirementsURI, _REQUIREMENTS_URI);
@@ -333,7 +535,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         _callback(1, _FACTS);
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
-        (,,,,,,,,,, uint256 prepaidBudget,,,,, bool fulfilled) = _verifier.requests(1);
+        (,,,,,,,,,,,, uint256 prepaidBudget,,,,, bool fulfilled) = _verifier.requests(1);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
         assertEq(prepaidBudget, _llmInferenceDeposit());
         assertTrue(fulfilled);
@@ -578,7 +780,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
         assertEq(_verifier.pendingVerificationRefunds(_contractor), _llmInferenceDeposit());
-        (,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
+        (,,,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
         assertEq(prepaidBudget, 0);
     }
 
@@ -597,7 +799,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         _callback(1, "");
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
-        (,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
+        (,,,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
         assertEq(prepaidBudget, 0);
         assertEq(_verifier.pendingVerificationRefunds(_contractor), _llmInferenceDeposit());
@@ -649,7 +851,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
         assertEq(_verifier.pendingVerificationRefunds(_contractor), _llmInferenceDeposit());
-        (,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
+        (,,,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
         assertEq(prepaidBudget, 0);
     }
 
@@ -662,7 +864,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
         (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.VerificationFailed));
         assertEq(_verifier.pendingVerificationRefunds(_contractor), 0);
-        (,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
+        (,,,,,,,,,,,, uint256 prepaidBudget,,,,,) = _verifier.requests(1);
         assertEq(prepaidBudget, 0);
     }
 
@@ -732,7 +934,7 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
         (,,,,,,, VigiliaEscrow.TaskState state,,,,) = _escrow.tasks(taskId);
         (,,,,, VigiliaTypes.VerificationVerdict verdict,,) = _escrow.submissions(submissionId);
-        (,,,,,,,,,,,,,,, bool oldFulfilled) = _verifier.requests(1);
+        (,,,,,,,,,,,,,,,,, bool oldFulfilled) = _verifier.requests(1);
 
         assertEq(uint256(state), uint256(VigiliaEscrow.TaskState.Submitted));
         assertEq(uint256(verdict), uint256(VigiliaTypes.VerificationVerdict.Unknown));
@@ -768,6 +970,26 @@ contract VigiliaMultiAgentVerifierTest is Test {
         );
     }
 
+    function _newReceiverBoundVerifier() private returns (VigiliaMultiAgentVerifier verifier) {
+        verifier = _newVerifier(true, true);
+        vm.prank(_binder);
+        verifier.bindEscrow(address(this));
+    }
+
+    function _requestThreeAgentDirect() private returns (VigiliaMultiAgentVerifier verifier) {
+        verifier = _newReceiverBoundVerifier();
+        vm.prank(address(this));
+        bytes32 requestId = verifier.requestVerification{ value: _threeAgentDeposit() }(
+            7,
+            8,
+            _requester,
+            _JSON_URL,
+            _REQUIREMENTS_URI,
+            VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict
+        );
+        assertEq(requestId, bytes32(uint256(1)));
+    }
+
     function _createAndFundTask() private returns (uint256 taskId) {
         vm.prank(_client);
         taskId = _escrow.createTask(_contractor, _resolver, _TASK_AMOUNT, _REVIEW_WINDOW, _REQUIREMENTS_URI);
@@ -789,17 +1011,29 @@ contract VigiliaMultiAgentVerifierTest is Test {
     }
 
     function _callback(uint256 _requestId, string memory _result) private {
+        _callbackTo(_verifier, _requestId, _result);
+    }
+
+    function _callbackTo(VigiliaMultiAgentVerifier _target, uint256 _requestId, string memory _result) private {
         ISomniaAgentRequester.Response[] memory responses = _responses(_result);
         ISomniaAgentRequester.Request memory details;
         _platform.callback(
-            address(_verifier), _requestId, responses, ISomniaAgentRequester.ResponseStatus.Success, details
+            address(_target), _requestId, responses, ISomniaAgentRequester.ResponseStatus.Success, details
         );
     }
 
     function _statusCallback(uint256 _requestId, ISomniaAgentRequester.ResponseStatus _status) private {
+        _statusCallbackTo(_verifier, _requestId, _status);
+    }
+
+    function _statusCallbackTo(
+        VigiliaMultiAgentVerifier _target,
+        uint256 _requestId,
+        ISomniaAgentRequester.ResponseStatus _status
+    ) private {
         ISomniaAgentRequester.Response[] memory responses = new ISomniaAgentRequester.Response[](0);
         ISomniaAgentRequester.Request memory details;
-        _platform.callback(address(_verifier), _requestId, responses, _status, details);
+        _platform.callback(address(_target), _requestId, responses, _status, details);
     }
 
     function _forceEscrowVerificationFailed(uint256 _taskId, uint256 _submissionId, bytes32 _requestId) private {
@@ -856,5 +1090,9 @@ contract VigiliaMultiAgentVerifierTest is Test {
 
     function _workflowDeposit() private pure returns (uint256 deposit) {
         deposit = _jsonDeposit() + _llmInferenceDeposit();
+    }
+
+    function _threeAgentDeposit() private pure returns (uint256 deposit) {
+        deposit = _jsonDeposit() + _jsonDeposit() + _llmParseWebsiteDeposit() + _llmInferenceDeposit();
     }
 }

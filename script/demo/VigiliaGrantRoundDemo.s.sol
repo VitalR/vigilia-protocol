@@ -198,26 +198,64 @@ contract VigiliaGrantRoundDemo is Script {
             _submitApplication(
                 grantRound, _scenarioEvidenceURI("GRANT_MALFORMED_EVIDENCE_URI"), applicantKey, applicantLabel
             );
+        } else if (actionHash == keccak256("submit-three-agent-complete")) {
+            (uint256 applicantKey, string memory applicantLabel) =
+                _selectedApplicantKey(config, config.applicantOnePrivateKey, "APPLICANT_ONE_PRIVATE_KEY");
+            _warnIfSingleWalletApplicant(applicantLabel, applicantKey, config);
+            _submitApplication(
+                grantRound, _scenarioEvidenceURI("GRANT_COMPLETE_BUNDLE_EVIDENCE_URI"), applicantKey, applicantLabel
+            );
+        } else if (actionHash == keccak256("submit-three-agent-needs-review")) {
+            (uint256 applicantKey, string memory applicantLabel) =
+                _selectedApplicantKey(config, config.applicantTwoPrivateKey, "APPLICANT_TWO_PRIVATE_KEY");
+            _warnIfSingleWalletApplicant(applicantLabel, applicantKey, config);
+            _submitApplication(
+                grantRound, _scenarioEvidenceURI("GRANT_NEEDS_REVIEW_BUNDLE_EVIDENCE_URI"), applicantKey, applicantLabel
+            );
+        } else if (actionHash == keccak256("submit-three-agent-incomplete")) {
+            (uint256 applicantKey, string memory applicantLabel) =
+                _selectedApplicantKey(config, config.applicantFourPrivateKey, "APPLICANT_FOUR_PRIVATE_KEY");
+            _warnIfSingleWalletApplicant(applicantLabel, applicantKey, config);
+            _submitApplication(
+                grantRound, _scenarioEvidenceURI("GRANT_INCOMPLETE_BUNDLE_EVIDENCE_URI"), applicantKey, applicantLabel
+            );
+        } else if (actionHash == keccak256("submit-three-agent-malformed")) {
+            (uint256 applicantKey, string memory applicantLabel) =
+                _selectedApplicantKey(config, config.applicantFourPrivateKey, "APPLICANT_FOUR_PRIVATE_KEY");
+            _warnIfSingleWalletApplicant(applicantLabel, applicantKey, config);
+            _submitApplication(
+                grantRound, _scenarioEvidenceURI("GRANT_MALFORMED_BUNDLE_EVIDENCE_URI"), applicantKey, applicantLabel
+            );
         } else if (actionHash == keccak256("request-screening")) {
             (uint256 requesterKey, string memory requesterLabel) =
                 _selectedApplicantKey(config, config.applicantPrivateKey, "APPLICANT_PRIVATE_KEY");
-            _requestScreening(config, grantRound, requesterKey, requesterLabel);
+            _requestScreening(config, grantRound, verifier, requesterKey, requesterLabel);
         } else if (actionHash == keccak256("request-screening-complete")) {
             (uint256 requesterKey, string memory requesterLabel) =
                 _selectedApplicantKey(config, config.applicantOnePrivateKey, "APPLICANT_ONE_PRIVATE_KEY");
-            _requestScreening(config, grantRound, requesterKey, requesterLabel);
+            _requestScreening(config, grantRound, verifier, requesterKey, requesterLabel);
         } else if (actionHash == keccak256("request-screening-needs-review")) {
             (uint256 requesterKey, string memory requesterLabel) =
                 _selectedApplicantKey(config, config.applicantTwoPrivateKey, "APPLICANT_TWO_PRIVATE_KEY");
-            _requestScreening(config, grantRound, requesterKey, requesterLabel);
+            _requestScreening(config, grantRound, verifier, requesterKey, requesterLabel);
         } else if (actionHash == keccak256("request-screening-incomplete")) {
             (uint256 requesterKey, string memory requesterLabel) =
                 _selectedApplicantKey(config, config.applicantFourPrivateKey, "APPLICANT_FOUR_PRIVATE_KEY");
-            _requestScreening(config, grantRound, requesterKey, requesterLabel);
+            _requestScreening(config, grantRound, verifier, requesterKey, requesterLabel);
         } else if (actionHash == keccak256("request-screening-malformed")) {
             (uint256 requesterKey, string memory requesterLabel) =
                 _selectedApplicantKey(config, config.applicantFourPrivateKey, "APPLICANT_FOUR_PRIVATE_KEY");
-            _requestScreening(config, grantRound, requesterKey, requesterLabel);
+            _requestScreening(config, grantRound, verifier, requesterKey, requesterLabel);
+        } else if (
+            actionHash == keccak256("request-screening-three-agent")
+                || actionHash == keccak256("request-screening-three-agent-complete")
+                || actionHash == keccak256("request-screening-three-agent-needs-review")
+                || actionHash == keccak256("request-screening-three-agent-incomplete")
+                || actionHash == keccak256("request-screening-three-agent-malformed")
+        ) {
+            (uint256 requesterKey, string memory requesterLabel) =
+                _selectedApplicantKey(config, config.applicantPrivateKey, "APPLICANT_PRIVATE_KEY");
+            _requestScreening(config, grantRound, verifier, requesterKey, requesterLabel);
         } else if (actionHash == keccak256("manual-screen-complete")) {
             _manualScreen(config, grantRound, VigiliaTypes.VerificationVerdict.Complete);
         } else if (actionHash == keccak256("manual-screen-needs-review")) {
@@ -368,18 +406,21 @@ contract VigiliaGrantRoundDemo is Script {
     function _requestScreening(
         DemoConfig memory,
         IVigiliaGrantRoundDemo _grantRound,
+        IVigiliaGrantRoundVerifierDemo _verifier,
         uint256 _requesterPrivateKey,
         string memory _requesterLabel
     ) private {
         uint256 applicationId = _applicationIdFromEnv();
-        uint256 deposit = vm.envUint("GRANT_ROUND_WORKFLOW_DEPOSIT_WEI");
+        ApplicationView memory application = _applicationView(_grantRound, applicationId);
+        RoundView memory round = _roundView(_grantRound, application.roundId);
+        uint256 deposit = _workflowDepositForMode(_verifier, round.screeningMode);
 
         vm.startBroadcast(_requesterPrivateKey);
         bytes32 requestId = _grantRound.requestApplicationScreening{ value: deposit }(applicationId);
         vm.stopBroadcast();
 
         console2.log("screening requested applicationId", applicationId);
-        console2.log("workflow", "TwoAgent / JsonFactsToLlmVerdict");
+        console2.log("workflow", _workflowName(round.screeningMode));
         console2.log("requester", vm.addr(_requesterPrivateKey));
         console2.log("requesterKey", _requesterLabel);
         console2.log("verificationDepositWei", deposit);
@@ -583,7 +624,7 @@ contract VigiliaGrantRoundDemo is Script {
         console2.log("Verifier", _config.verifierAddress);
         console2.log("verifier.escrow", _verifier.escrow());
         console2.log("grantRound.verifier", _grantRound.verifier());
-        console2.log("threeAgentRequestPath", "gated until verifier exposes Website Parse workflow proof");
+        console2.log("threeAgentRequestPath", "requires fresh verifier with workflow index 4 support");
         try _verifier.minimumRequestDepositForWorkflow(
             VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict
         ) returns (
@@ -595,6 +636,21 @@ contract VigiliaGrantRoundDemo is Script {
             console2.log(
                 "configuredGrantRoundWorkflowDepositWei", vm.envOr("GRANT_ROUND_WORKFLOW_DEPOSIT_WEI", uint256(0))
             );
+        }
+        try _verifier.minimumRequestDepositForWorkflow(
+            VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict
+        ) returns (
+            uint256 deposit
+        ) {
+            console2.log("minimumRequestDepositForWorkflow(4)", deposit);
+            console2.log("threeAgentVerifierSupport", "available");
+        } catch {
+            console2.log("minimumRequestDepositForWorkflow(4) unavailable in local script simulation");
+            console2.log(
+                "configuredThreeAgentWorkflowDepositWei",
+                vm.envOr("GRANT_ROUND_THREE_AGENT_WORKFLOW_DEPOSIT_WEI", uint256(0))
+            );
+            console2.log("threeAgentVerifierSupport", "query unavailable; use grant-round-three-agent-verifier-deposit");
         }
         _logRole("sponsor", _config.sponsorPrivateKey);
         _logRole("judge", _config.judgePrivateKey);
@@ -631,9 +687,9 @@ contract VigiliaGrantRoundDemo is Script {
         console2.log("round.screeningMode", _screeningModeName(round.screeningMode));
         console2.log("round.screeningModeIndex", round.screeningMode);
         if (round.screeningMode == 0) {
-            console2.log("round.screeningModeStatus", "current proven fallback: JsonFactsToLlmVerdict");
+            console2.log("round.screeningModeStatus", "TwoAgent: JSON facts -> LLM bounded verdict");
         } else if (round.screeningMode == 1) {
-            console2.log("round.screeningModeStatus", "gated: Website Parse workflow is not live in this verifier");
+            console2.log("round.screeningModeStatus", "ThreeAgent: JSON facts + Website Parse -> LLM bounded verdict");
         }
         console2.log("requiredFunding", _grantRound.requiredFunding(_roundId));
         console2.log("selectedAllocation", _grantRound.selectedAllocation(_roundId));
@@ -876,6 +932,42 @@ contract VigiliaGrantRoundDemo is Script {
         if (_mode == 0) return "TwoAgent";
         if (_mode == 1) return "ThreeAgent";
         return "Unknown";
+    }
+
+    function _workflowName(uint8 _mode) private pure returns (string memory name) {
+        if (_mode == 0) return "TwoAgent / JsonFactsToLlmVerdict";
+        if (_mode == 1) return "ThreeAgent / JsonFactsAndWebsiteToLlmVerdict";
+        return "Unknown";
+    }
+
+    function _workflowDepositForMode(IVigiliaGrantRoundVerifierDemo _verifier, uint8 _mode)
+        private
+        view
+        returns (uint256 deposit)
+    {
+        if (_mode == 0) {
+            try _verifier.minimumRequestDepositForWorkflow(
+                VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict
+            ) returns (
+                uint256 queriedDeposit
+            ) {
+                return queriedDeposit;
+            } catch {
+                return vm.envUint("GRANT_ROUND_WORKFLOW_DEPOSIT_WEI");
+            }
+        }
+        if (_mode == 1) {
+            try _verifier.minimumRequestDepositForWorkflow(
+                VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict
+            ) returns (
+                uint256 queriedDeposit
+            ) {
+                return queriedDeposit;
+            } catch {
+                return vm.envUint("GRANT_ROUND_THREE_AGENT_WORKFLOW_DEPOSIT_WEI");
+            }
+        }
+        revert UnsupportedDemoAction("unsupported-screening-mode");
     }
 
     function _verdictName(uint8 _verdict) private pure returns (string memory name) {

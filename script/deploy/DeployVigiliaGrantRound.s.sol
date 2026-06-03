@@ -10,10 +10,10 @@ import { VigiliaMultiAgentVerifier } from "../../src/VigiliaMultiAgentVerifier.s
 /// @dev This script does not mutate or reuse the hardened v0.2.3 escrow/verifier deployment. GrantRound needs its own
 /// verifier because `VigiliaMultiAgentVerifier` binds to one settlement receiver.
 contract DeployVigiliaGrantRound is Script {
-    string private constant _DEPLOYMENT_ARTIFACT = "deployments/somnia-testnet-50312-grant-round.json";
-    string private constant _DEPLOYMENT_NAME = "vigilia-grant-round-two-agent-screening";
+    string private constant _DEPLOYMENT_ARTIFACT = "deployments/somnia-testnet-50312-grant-round-three-agent.json";
+    string private constant _DEPLOYMENT_NAME = "vigilia-grant-round-three-agent";
     string private constant _NETWORK = "somnia-testnet";
-    string private constant _VERSION = "v0.3.0";
+    string private constant _VERSION = "v0.4.0";
 
     struct DeploymentConfig {
         uint256 deployerPrivateKey;
@@ -114,16 +114,16 @@ contract DeployVigiliaGrantRound is Script {
         vm.serializeAddress(object, "vigiliaGrantRound", _grantRound);
         vm.serializeAddress(object, "vigiliaMultiAgentVerifier", _verifier);
         vm.serializeAddress(object, "somniaAgentPlatform", _config.platform);
-        vm.serializeString(object, "enabledGrantRoundWorkflow", "JsonFactsToLlmVerdict");
-        vm.serializeString(object, "enabledGrantRoundScreeningMode", "TwoAgent");
-        vm.serializeString(object, "gatedGrantRoundScreeningMode", "ThreeAgent");
-        vm.serializeString(object, "enabledSettlementAgentTypes", "json-api,llm-inference");
-        vm.serializeString(object, "disabledSettlementAgentTypes", "llm-parse-website");
+        vm.serializeString(
+            object, "enabledGrantRoundWorkflows", "JsonFactsToLlmVerdict,JsonFactsAndWebsiteToLlmVerdict"
+        );
+        vm.serializeString(object, "enabledGrantRoundScreeningModes", "TwoAgent,ThreeAgent");
+        vm.serializeString(object, "enabledSettlementAgentTypes", "json-api,llm-inference,llm-parse-website");
         vm.serializeString(object, "canaryAgentTypes", _canaryAgentTypes(_config));
         vm.serializeString(
             object,
             "notes",
-            "GrantRound uses a fresh verifier bound to the GrantRound receiver. TwoAgent screening is JSON API facts plus LLM Inference bounded verdict. ThreeAgent is configured at the round data-model level but request-time gated until Website Parse is proven against real HTML."
+            "GrantRound uses a fresh verifier bound to the GrantRound receiver. TwoAgent screening is JSON API facts plus LLM Inference bounded verdict. ThreeAgent screening adds Website Parse before final bounded LLM classification. Agents screen applications; judges select finalists."
         );
         vm.serializeUint(object, "jsonApiAgentId", _config.jsonApiAgentId);
         vm.serializeUint(object, "llmInferenceAgentId", _config.llmInferenceAgentId);
@@ -141,6 +141,14 @@ contract DeployVigiliaGrantRound is Script {
             object,
             "twoAgentWorkflowMinimumDepositWei",
             _minimumDeposit(_config, _config.jsonApiPricePerValidator)
+                + _minimumDeposit(_config, _config.llmInferencePricePerValidator)
+        );
+        vm.serializeUint(
+            object,
+            "threeAgentWorkflowMinimumDepositWei",
+            _minimumDeposit(_config, _config.jsonApiPricePerValidator)
+                + _minimumDeposit(_config, _config.jsonApiPricePerValidator)
+                + _minimumDeposit(_config, _config.llmParseWebsitePricePerValidator)
                 + _minimumDeposit(_config, _config.llmInferencePricePerValidator)
         );
         vm.serializeUint(object, "blockNumber", block.number);
@@ -175,14 +183,19 @@ contract DeployVigiliaGrantRound is Script {
         console2.log("llmInferenceMinimumDepositWei", _minimumDeposit(_config, _config.llmInferencePricePerValidator));
         console2.log("llmParseWebsiteAgentId", _config.llmParseWebsiteAgentId);
         console2.log("llmParseWebsitePricePerValidatorWei", _config.llmParseWebsitePricePerValidator);
-        console2.log("enabledGrantRoundWorkflow", "JsonFactsToLlmVerdict");
-        console2.log("enabledGrantRoundScreeningMode", "TwoAgent");
-        console2.log("gatedGrantRoundScreeningMode", "ThreeAgent");
-        console2.log("enabledSettlementAgentTypes", "json-api,llm-inference");
-        console2.log("disabledSettlementAgentTypes", "llm-parse-website");
+        console2.log("enabledGrantRoundWorkflows", "JsonFactsToLlmVerdict,JsonFactsAndWebsiteToLlmVerdict");
+        console2.log("enabledGrantRoundScreeningModes", "TwoAgent,ThreeAgent");
+        console2.log("enabledSettlementAgentTypes", "json-api,llm-inference,llm-parse-website");
         console2.log(
             "twoAgentWorkflowMinimumDepositWei",
             _minimumDeposit(_config, _config.jsonApiPricePerValidator)
+                + _minimumDeposit(_config, _config.llmInferencePricePerValidator)
+        );
+        console2.log(
+            "threeAgentWorkflowMinimumDepositWei",
+            _minimumDeposit(_config, _config.jsonApiPricePerValidator)
+                + _minimumDeposit(_config, _config.jsonApiPricePerValidator)
+                + _minimumDeposit(_config, _config.llmParseWebsitePricePerValidator)
                 + _minimumDeposit(_config, _config.llmInferencePricePerValidator)
         );
         console2.log("canaryAgentTypes", _canaryAgentTypes(_config));

@@ -1,0 +1,8 @@
+{
+  "facts": "repo_exists=true; readme_setup=true; deployment_address_present=false; demo_url_present=false; tests_passed=false",
+  "websiteURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants/incomplete-project.html",
+  "projectURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants/incomplete-project.html",
+  "repoURI": "https://github.com/VitalR/vigilia-protocol",
+  "demoURI": "",
+  "summary": "Project is missing deployment address, demo URL, and test proof."
+}

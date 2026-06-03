@@ -14,12 +14,13 @@ library VigiliaAgentTypes {
     }
 
     /// @notice Settlement workflows supported by the multi-agent verifier.
-    /// @dev `JsonFactsToLlmVerdict` is the first production multi-agent settlement flow.
+    /// @dev New workflows are appended so deployed script assumptions for existing numeric values stay stable.
     enum SettlementWorkflow {
         Unknown,
         JsonApiVerdict,
         LlmDirectVerdict,
-        JsonFactsToLlmVerdict
+        JsonFactsToLlmVerdict,
+        JsonFactsAndWebsiteToLlmVerdict
     }
 
     /// @notice Async stage for a settlement platform request.
@@ -27,6 +28,8 @@ library VigiliaAgentTypes {
     enum VerificationStage {
         Unknown,
         JsonFacts,
+        JsonWebsiteURI,
+        WebsiteParse,
         LlmVerdict
     }
 }

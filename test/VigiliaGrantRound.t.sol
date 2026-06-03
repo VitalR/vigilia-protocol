@@ -4,6 +4,7 @@ pragma solidity 0.8.34;
 import { Test } from "@forge-std/Test.sol";
 import { VigiliaGrantRound } from "../src/VigiliaGrantRound.sol";
 import { MockVerifier } from "../src/mocks/MockVerifier.sol";
+import { VigiliaAgentTypes } from "../src/types/VigiliaAgentTypes.sol";
 import { VigiliaTypes } from "../src/types/VigiliaTypes.sol";
 
 contract VigiliaGrantRoundTest is Test {
@@ -423,18 +424,23 @@ contract VigiliaGrantRoundTest is Test {
         assertTrue(_verifier.requests(requestId));
     }
 
-    function test_RequestApplicationScreening_ThreeAgentRevertsUntilVerifierSupportsWebsiteWorkflow() public {
+    function test_RequestApplicationScreening_ThreeAgentMapsToWebsiteWorkflow() public {
         uint256 roundId = _createRoundWithMode(VigiliaGrantRound.ScreeningMode.ThreeAgent);
         _fundRound(roundId);
         uint256 applicationId = _submitApplication(_applicant, roundId, _EVIDENCE_URI, _EVIDENCE_HASH);
 
         vm.prank(_applicant);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                VigiliaGrantRound.UnsupportedScreeningMode.selector, VigiliaGrantRound.ScreeningMode.ThreeAgent
-            )
+        bytes32 requestId = _grantRound.requestApplicationScreening(applicationId);
+
+        (,,,, bytes32 storedRequestId,, VigiliaGrantRound.ApplicationStatus status, bool selected,,,,) =
+            _grantRound.applications(applicationId);
+        assertEq(storedRequestId, requestId);
+        assertEq(uint256(status), uint256(VigiliaGrantRound.ApplicationStatus.ScreeningRequested));
+        assertFalse(selected);
+        assertEq(
+            uint256(_verifier.lastWorkflow()),
+            uint256(VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict)
         );
-        _grantRound.requestApplicationScreening(applicationId);
     }
 
     function test_RequestApplicationScreening_ZeroVerifierReverts() public {

@@ -24,11 +24,7 @@ library VigiliaMultiAgentPlatformLib {
     error Unauthorized(address caller);
 
     /// @dev Builds the proven JSON API Request payload.
-    function jsonApiPayload(string calldata _url, string memory _selector)
-        internal
-        pure
-        returns (bytes memory payload)
-    {
+    function jsonApiPayload(string memory _url, string memory _selector) internal pure returns (bytes memory payload) {
         payload = abi.encodeWithSelector(IJsonApiAgent.fetchString.selector, _url, _selector);
     }
 

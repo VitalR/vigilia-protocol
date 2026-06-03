@@ -19,9 +19,14 @@ import { VigiliaMultiAgentTypes } from "./types/VigiliaMultiAgentTypes.sol";
 contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
     /// @dev JSON selector used by the two-agent workflow to fetch structured facts before LLM classification.
     string private constant _FACTS_SELECTOR = "facts";
+    /// @dev JSON selector used by the three-agent workflow to fetch the Website Parse target.
+    string private constant _WEBSITE_URI_SELECTOR = "websiteURI";
     /// @dev Fixed system prompt for settlement LLM verdict requests.
     string private constant _LLM_SYSTEM_PROMPT =
         "You are a strict Vigilia work verifier. Return exactly one allowed value. Do not explain.";
+    /// @dev Fixed system prompt for ThreeAgent final grant-screening verdict requests.
+    string private constant _THREE_AGENT_LLM_SYSTEM_PROMPT =
+        "You are a strict grant application screening classifier. Return exactly one allowed value: Complete, NeedsReview, or Incomplete. Do not explain.";
 
     /// @notice Constructor configuration for the v0.2.0 canary coordinator.
     /// @param platform Somnia Agent requester platform.
@@ -154,6 +159,40 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         uint256 indexed taskId,
         uint256 submissionId,
         uint256 deposit
+    );
+
+    /// @notice Emitted when the ThreeAgent workflow reads a public website URI from the evidence bundle.
+    /// @param platformRequestId JSON websiteURI platform request identifier.
+    /// @param taskId Task or round being verified.
+    /// @param submissionId Submission or application being verified.
+    /// @param websiteURI Public HTML URL used by Website Parse.
+    event JsonWebsiteURIReceived(
+        uint256 indexed platformRequestId, uint256 indexed taskId, uint256 indexed submissionId, string websiteURI
+    );
+
+    /// @notice Emitted when the verifier creates the Website Parse stage.
+    /// @param parentRequestId Escrow-facing root workflow request identifier.
+    /// @param websiteParseRequestId Website Parse platform request identifier.
+    /// @param taskId Task or round being verified.
+    /// @param submissionId Submission or application being verified.
+    /// @param deposit Native-token budget forwarded to Website Parse.
+    /// @param websiteURI Public HTML URL parsed by the agent.
+    event WebsiteParseRequested(
+        uint256 indexed parentRequestId,
+        uint256 indexed websiteParseRequestId,
+        uint256 indexed taskId,
+        uint256 submissionId,
+        uint256 deposit,
+        string websiteURI
+    );
+
+    /// @notice Emitted when the Website Parse stage returns extracted project evidence.
+    /// @param platformRequestId Website Parse platform request identifier.
+    /// @param taskId Task or round being verified.
+    /// @param submissionId Submission or application being verified.
+    /// @param websiteExtract Extracted website evidence passed to the final LLM stage.
+    event WebsiteParseEvidenceReceived(
+        uint256 indexed platformRequestId, uint256 indexed taskId, uint256 indexed submissionId, string websiteExtract
     );
 
     /// @notice Emitted when the JSON callback could not automatically start the prepaid LLM stage.
@@ -340,7 +379,7 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
             _config.llmParseWebsitePricePerValidator,
             _config.subcommitteeSize,
             "ExtractString(string,string,string[],string,string,bool,uint8,uint8)",
-            false
+            _config.enableLlmInferenceSettlement
         );
     }
 
@@ -383,6 +422,12 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         }
         if (_workflow == VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict) {
             return minimumRequestDeposit(VigiliaAgentTypes.AgentKind.JsonApi)
+                + minimumRequestDeposit(VigiliaAgentTypes.AgentKind.LlmInference);
+        }
+        if (_workflow == VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict) {
+            return minimumRequestDeposit(VigiliaAgentTypes.AgentKind.JsonApi)
+                + minimumRequestDeposit(VigiliaAgentTypes.AgentKind.JsonApi)
+                + minimumRequestDeposit(VigiliaAgentTypes.AgentKind.LlmParseWebsite)
                 + minimumRequestDeposit(VigiliaAgentTypes.AgentKind.LlmInference);
         }
         revert UnknownSettlementWorkflow(_workflow);
@@ -562,6 +607,48 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         llmRequestId = _startLlmVerdictStage(_parentRequestId, context);
     }
 
+    /// @notice Starts the JSON websiteURI stage from inside a ThreeAgent JSON facts callback.
+    /// @dev External self-call lets `handleResponse` catch platform createRequest failures and fail closed.
+    /// @param _parentRequestId Receiver-facing JSON facts root request identifier.
+    /// @return websiteUriRequestId New JSON API platform request identifier.
+    function startJsonWebsiteURIStageFromCallback(uint256 _parentRequestId)
+        external
+        returns (uint256 websiteUriRequestId)
+    {
+        if (msg.sender != address(this)) revert DecodeOnlySelf();
+        VigiliaMultiAgentTypes.RequestContext storage context = requests[_parentRequestId];
+        if (!_canContinueWebsiteURI(_parentRequestId, context)) revert ContinuationUnavailable(_parentRequestId);
+        websiteUriRequestId = _startJsonWebsiteURIStage(_parentRequestId, context);
+    }
+
+    /// @notice Starts the Website Parse stage from inside a ThreeAgent websiteURI callback.
+    /// @dev External self-call lets `handleResponse` catch platform createRequest failures and fail closed.
+    /// @param _websiteUriRequestId JSON websiteURI platform request identifier.
+    /// @return websiteParseRequestId New Website Parse platform request identifier.
+    function startWebsiteParseStageFromCallback(uint256 _websiteUriRequestId)
+        external
+        returns (uint256 websiteParseRequestId)
+    {
+        if (msg.sender != address(this)) revert DecodeOnlySelf();
+        VigiliaMultiAgentTypes.RequestContext storage context = requests[_websiteUriRequestId];
+        if (!_canContinueWebsiteParse(context)) revert ContinuationUnavailable(_websiteUriRequestId);
+        websiteParseRequestId = _startWebsiteParseStage(_websiteUriRequestId, context);
+    }
+
+    /// @notice Starts the final ThreeAgent LLM verdict stage from inside a Website Parse callback.
+    /// @dev External self-call lets `handleResponse` catch platform createRequest failures and fail closed.
+    /// @param _websiteParseRequestId Website Parse platform request identifier.
+    /// @return llmRequestId New LLM Inference platform request identifier.
+    function startThreeAgentLlmVerdictStageFromCallback(uint256 _websiteParseRequestId)
+        external
+        returns (uint256 llmRequestId)
+    {
+        if (msg.sender != address(this)) revert DecodeOnlySelf();
+        VigiliaMultiAgentTypes.RequestContext storage context = requests[_websiteParseRequestId];
+        if (!_canContinueThreeAgentLlm(context)) revert ContinuationUnavailable(_websiteParseRequestId);
+        llmRequestId = _startThreeAgentLlmVerdictStage(_websiteParseRequestId, context);
+    }
+
     /// @notice Handles a final Somnia Agent platform callback for canary or settlement requests.
     /// @param _requestId Somnia platform request identifier.
     /// @param _responses Validator responses supplied by the platform.
@@ -651,6 +738,10 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         } else if (_workflow == VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict) {
             vigiliaRequestId =
                 _requestJsonFactsToLlmVerdict(_taskId, _submissionId, _payer, _evidenceURI, _requirementsURI);
+        } else if (_workflow == VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict) {
+            vigiliaRequestId = _requestJsonFactsAndWebsiteToLlmVerdict(
+                _taskId, _submissionId, _payer, _evidenceURI, _requirementsURI
+            );
         } else {
             revert UnknownSettlementWorkflow(_workflow);
         }
@@ -742,6 +833,60 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         _emitSettlementRequested(platformRequestId, _evidenceURI);
     }
 
+    /// @dev Starts the ThreeAgent workflow by fetching JSON facts before website URI, Website Parse, and final LLM.
+    /// @param _taskId Task or round identifier supplied by the settlement receiver.
+    /// @param _submissionId Submission or application identifier supplied by the settlement receiver.
+    /// @param _payer Account that paid the combined workflow deposit forwarded by the receiver.
+    /// @param _evidenceURI Public evidence bundle URI whose `facts` and `websiteURI` fields are fetched.
+    /// @param _requirementsURI Task or grant requirements text or URI included in the final LLM prompt.
+    /// @return vigiliaRequestId Receiver-facing request identifier derived from the JSON facts platform request ID.
+    function _requestJsonFactsAndWebsiteToLlmVerdict(
+        uint256 _taskId,
+        uint256 _submissionId,
+        address _payer,
+        string calldata _evidenceURI,
+        string memory _requirementsURI
+    ) private returns (bytes32 vigiliaRequestId) {
+        VigiliaAgentTypes.AgentKind jsonKind = VigiliaAgentTypes.AgentKind.JsonApi;
+        VigiliaMultiAgentTypes.AgentConfig storage jsonConfig = _configured(jsonKind);
+        if (!jsonConfig.settlementEnabled) revert SettlementDisabled(jsonKind);
+        if (!_configured(VigiliaAgentTypes.AgentKind.LlmInference).settlementEnabled) {
+            revert SettlementDisabled(VigiliaAgentTypes.AgentKind.LlmInference);
+        }
+        if (!_configured(VigiliaAgentTypes.AgentKind.LlmParseWebsite).settlementEnabled) {
+            revert SettlementDisabled(VigiliaAgentTypes.AgentKind.LlmParseWebsite);
+        }
+
+        uint256 requiredDeposit =
+            minimumRequestDepositForWorkflow(VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict);
+        if (msg.value != requiredDeposit) revert InvalidVerificationDeposit(requiredDeposit, msg.value);
+
+        uint256 platformRequestId = _createPlatformRequest(
+            jsonKind,
+            minimumRequestDeposit(jsonKind),
+            VigiliaMultiAgentPlatformLib.jsonApiPayload(_evidenceURI, _FACTS_SELECTOR)
+        );
+        VigiliaMultiAgentTypes.RequestContext storage context = requests[platformRequestId];
+        _initSettlementContext(
+            context,
+            _taskId,
+            _submissionId,
+            jsonKind,
+            _payer,
+            keccak256(abi.encode(_evidenceURI, _requirementsURI, _WEBSITE_URI_SELECTOR)),
+            VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict,
+            VigiliaAgentTypes.VerificationStage.JsonFacts,
+            _evidenceURI
+        );
+        context.requirementsURI = _requirementsURI;
+        context.prepaidBudget = minimumRequestDeposit(jsonKind)
+            + minimumRequestDeposit(VigiliaAgentTypes.AgentKind.LlmParseWebsite)
+            + minimumRequestDeposit(VigiliaAgentTypes.AgentKind.LlmInference);
+        activePlatformRequest[_taskId][_submissionId] = platformRequestId;
+        vigiliaRequestId = bytes32(platformRequestId);
+        _emitSettlementRequested(platformRequestId, _evidenceURI);
+    }
+
     /// @dev Parses a successful platform callback, advances multi-stage workflows, or forwards a bounded verdict.
     /// @param _requestId Somnia platform request identifier receiving the callback.
     /// @param context Stored request context for the callback target.
@@ -782,6 +927,93 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
             try this.startLlmVerdictStageFromCallback(_requestId) returns (uint256) { }
             catch {
                 emit LlmVerdictContinuationRequired(_requestId, context.taskId, context.submissionId);
+            }
+            return;
+        }
+
+        if (
+            context.workflow == VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict
+                && context.stage == VigiliaAgentTypes.VerificationStage.JsonFacts
+        ) {
+            if (bytes(result).length == 0) {
+                _handleTerminalFailure(
+                    _requestId,
+                    context,
+                    ISomniaAgentRequester.ResponseStatus.Success,
+                    VigiliaAgentStringLib.failureNotesUri(_requestId, "empty-facts")
+                );
+                return;
+            }
+
+            context.facts = result;
+            emit JsonFactsReceived(_requestId, context.taskId, context.submissionId, result);
+
+            try this.startJsonWebsiteURIStageFromCallback(_requestId) returns (uint256) { }
+            catch {
+                _handleTerminalFailure(
+                    _requestId,
+                    context,
+                    ISomniaAgentRequester.ResponseStatus.Success,
+                    VigiliaAgentStringLib.failureNotesUri(_requestId, "website-uri-continuation")
+                );
+            }
+            return;
+        }
+
+        if (
+            context.workflow == VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict
+                && context.stage == VigiliaAgentTypes.VerificationStage.JsonWebsiteURI
+        ) {
+            if (bytes(result).length == 0) {
+                _handleTerminalFailure(
+                    _requestId,
+                    context,
+                    ISomniaAgentRequester.ResponseStatus.Success,
+                    VigiliaAgentStringLib.failureNotesUri(_requestId, "missing-website-uri")
+                );
+                return;
+            }
+
+            context.websiteURI = result;
+            emit JsonWebsiteURIReceived(_requestId, context.taskId, context.submissionId, result);
+
+            try this.startWebsiteParseStageFromCallback(_requestId) returns (uint256) { }
+            catch {
+                _handleTerminalFailure(
+                    _requestId,
+                    context,
+                    ISomniaAgentRequester.ResponseStatus.Success,
+                    VigiliaAgentStringLib.failureNotesUri(_requestId, "website-parse-continuation")
+                );
+            }
+            return;
+        }
+
+        if (
+            context.workflow == VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict
+                && context.stage == VigiliaAgentTypes.VerificationStage.WebsiteParse
+        ) {
+            if (bytes(result).length == 0) {
+                _handleTerminalFailure(
+                    _requestId,
+                    context,
+                    ISomniaAgentRequester.ResponseStatus.Success,
+                    VigiliaAgentStringLib.failureNotesUri(_requestId, "empty-website-parse")
+                );
+                return;
+            }
+
+            context.websiteExtract = result;
+            emit WebsiteParseEvidenceReceived(_requestId, context.taskId, context.submissionId, result);
+
+            try this.startThreeAgentLlmVerdictStageFromCallback(_requestId) returns (uint256) { }
+            catch {
+                _handleTerminalFailure(
+                    _requestId,
+                    context,
+                    ISomniaAgentRequester.ResponseStatus.Success,
+                    VigiliaAgentStringLib.failureNotesUri(_requestId, "llm-continuation")
+                );
             }
             return;
         }
@@ -883,6 +1115,61 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         return activeRequestId == _parentRequestId;
     }
 
+    /// @dev Returns whether a fulfilled ThreeAgent facts request may start the JSON websiteURI stage.
+    function _canContinueWebsiteURI(uint256 _parentRequestId, VigiliaMultiAgentTypes.RequestContext storage _context)
+        private
+        view
+        returns (bool canContinue)
+    {
+        if (!_context.exists || !_context.isSettlement || !_context.fulfilled) return false;
+        if (_context.workflow != VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict) return false;
+        if (_context.stage != VigiliaAgentTypes.VerificationStage.JsonFacts) return false;
+        if (bytes(_context.facts).length == 0) return false;
+        uint256 expectedBudget = minimumRequestDeposit(VigiliaAgentTypes.AgentKind.JsonApi)
+            + minimumRequestDeposit(VigiliaAgentTypes.AgentKind.LlmParseWebsite)
+            + minimumRequestDeposit(VigiliaAgentTypes.AgentKind.LlmInference);
+        if (_context.prepaidBudget != expectedBudget) return false;
+        uint256 activeRequestId = activePlatformRequest[_context.taskId][_context.submissionId];
+        return activeRequestId == _parentRequestId;
+    }
+
+    /// @dev Returns whether a fulfilled ThreeAgent websiteURI request may start Website Parse.
+    function _canContinueWebsiteParse(VigiliaMultiAgentTypes.RequestContext storage _context)
+        private
+        view
+        returns (bool canContinue)
+    {
+        if (!_context.exists || !_context.isSettlement || !_context.fulfilled) return false;
+        if (_context.workflow != VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict) return false;
+        if (_context.stage != VigiliaAgentTypes.VerificationStage.JsonWebsiteURI) return false;
+        if (bytes(_context.facts).length == 0 || bytes(_context.websiteURI).length == 0) return false;
+        uint256 expectedBudget = minimumRequestDeposit(VigiliaAgentTypes.AgentKind.LlmParseWebsite)
+            + minimumRequestDeposit(VigiliaAgentTypes.AgentKind.LlmInference);
+        if (_context.prepaidBudget != expectedBudget) return false;
+        uint256 rootRequestId = _rootRequestId(0, _context);
+        uint256 activeRequestId = activePlatformRequest[_context.taskId][_context.submissionId];
+        return activeRequestId == rootRequestId;
+    }
+
+    /// @dev Returns whether a fulfilled ThreeAgent Website Parse request may start final LLM classification.
+    function _canContinueThreeAgentLlm(VigiliaMultiAgentTypes.RequestContext storage _context)
+        private
+        view
+        returns (bool canContinue)
+    {
+        if (!_context.exists || !_context.isSettlement || !_context.fulfilled) return false;
+        if (_context.workflow != VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict) return false;
+        if (_context.stage != VigiliaAgentTypes.VerificationStage.WebsiteParse) return false;
+        if (
+            bytes(_context.facts).length == 0 || bytes(_context.websiteURI).length == 0
+                || bytes(_context.websiteExtract).length == 0
+        ) return false;
+        if (_context.prepaidBudget != minimumRequestDeposit(VigiliaAgentTypes.AgentKind.LlmInference)) return false;
+        uint256 rootRequestId = _rootRequestId(0, _context);
+        uint256 activeRequestId = activePlatformRequest[_context.taskId][_context.submissionId];
+        return activeRequestId == rootRequestId;
+    }
+
     /// @dev Creates the prepaid LLM Inference request for the second stage of the two-agent workflow.
     /// @param _parentRequestId Escrow-facing JSON facts platform request identifier.
     /// @param _parent Stored parent request context with retained facts and LLM budget.
@@ -910,6 +1197,128 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         emit LlmVerdictRequested(_parentRequestId, llmRequestId, _parent.taskId, _parent.submissionId, llmDeposit);
     }
 
+    /// @dev Creates the JSON API websiteURI request for the second stage of the ThreeAgent workflow.
+    function _startJsonWebsiteURIStage(uint256 _parentRequestId, VigiliaMultiAgentTypes.RequestContext storage _parent)
+        private
+        returns (uint256 websiteUriRequestId)
+    {
+        VigiliaAgentTypes.AgentKind kind = VigiliaAgentTypes.AgentKind.JsonApi;
+        uint256 jsonDeposit = minimumRequestDeposit(kind);
+        uint256 remainingBudget = _parent.prepaidBudget - jsonDeposit;
+        _parent.prepaidBudget = 0;
+
+        websiteUriRequestId = _createPlatformRequest(
+            kind, jsonDeposit, VigiliaMultiAgentPlatformLib.jsonApiPayload(_parent.evidenceURI, _WEBSITE_URI_SELECTOR)
+        );
+        _initThreeAgentChildContext(
+            websiteUriRequestId,
+            _parent,
+            _parentRequestId,
+            kind,
+            VigiliaAgentTypes.VerificationStage.JsonWebsiteURI,
+            remainingBudget
+        );
+
+        emit MultiAgentVerificationRequested(
+            bytes32(_parentRequestId),
+            websiteUriRequestId,
+            _parent.taskId,
+            _parent.submissionId,
+            kind,
+            _parent.workflow,
+            VigiliaAgentTypes.VerificationStage.JsonWebsiteURI,
+            agentConfigs[kind].agentId,
+            jsonDeposit,
+            _parent.evidenceURI
+        );
+    }
+
+    /// @dev Creates the Website Parse request for the third stage of the ThreeAgent workflow.
+    function _startWebsiteParseStage(
+        uint256 _websiteUriRequestId,
+        VigiliaMultiAgentTypes.RequestContext storage _parent
+    ) private returns (uint256 websiteParseRequestId) {
+        VigiliaAgentTypes.AgentKind kind = VigiliaAgentTypes.AgentKind.LlmParseWebsite;
+        VigiliaMultiAgentTypes.AgentConfig storage config = _configured(kind);
+        if (!config.settlementEnabled) revert SettlementDisabled(kind);
+
+        uint256 parseDeposit = minimumRequestDeposit(kind);
+        uint256 remainingBudget = _parent.prepaidBudget - parseDeposit;
+        _parent.prepaidBudget = 0;
+
+        string[] memory emptyOptions = new string[](0);
+        bytes memory payload = abi.encodeWithSelector(
+            ILlmParseWebsiteAgent.ExtractString.selector,
+            "grantEvidence",
+            "Extract concise grant evidence: repo, README/setup docs, deployment address, demo URL, and tests/proof.",
+            emptyOptions,
+            "Extract project evidence from this HTML page for a grant eligibility screen. Include whether repo, setup docs, deployment address, demo URL, and tests/proof appear present.",
+            _parent.websiteURI,
+            false,
+            uint8(1),
+            uint8(50)
+        );
+
+        websiteParseRequestId = _createPlatformRequest(kind, parseDeposit, payload);
+        _initThreeAgentChildContext(
+            websiteParseRequestId,
+            _parent,
+            _rootFromParent(_websiteUriRequestId, _parent),
+            kind,
+            VigiliaAgentTypes.VerificationStage.WebsiteParse,
+            remainingBudget
+        );
+        requests[websiteParseRequestId].websiteURI = _parent.websiteURI;
+
+        emit WebsiteParseRequested(
+            _rootFromParent(_websiteUriRequestId, _parent),
+            websiteParseRequestId,
+            _parent.taskId,
+            _parent.submissionId,
+            parseDeposit,
+            _parent.websiteURI
+        );
+    }
+
+    /// @dev Creates the final LLM Inference request for the fourth stage of the ThreeAgent workflow.
+    function _startThreeAgentLlmVerdictStage(
+        uint256 _websiteParseRequestId,
+        VigiliaMultiAgentTypes.RequestContext storage _parent
+    ) private returns (uint256 llmRequestId) {
+        VigiliaAgentTypes.AgentKind kind = VigiliaAgentTypes.AgentKind.LlmInference;
+        VigiliaMultiAgentTypes.AgentConfig storage config = _configured(kind);
+        if (!config.settlementEnabled) revert SettlementDisabled(kind);
+
+        uint256 llmDeposit = _parent.prepaidBudget;
+        _parent.prepaidBudget = 0;
+
+        string memory prompt = VigiliaAgentStringLib.threeAgentGrantVerdictPrompt(
+            _parent.requirementsURI, _parent.facts, _parent.websiteExtract, _parent.evidenceURI, _parent.websiteURI
+        );
+        string[] memory allowedValues = VigiliaAgentStringLib.allowedVerdictValues();
+        bytes memory payload = abi.encodeWithSelector(
+            ILlmInferenceAgent.inferString.selector, prompt, _THREE_AGENT_LLM_SYSTEM_PROMPT, false, allowedValues
+        );
+
+        llmRequestId = _createPlatformRequest(kind, llmDeposit, payload);
+        _initThreeAgentChildContext(
+            llmRequestId,
+            _parent,
+            _rootFromParent(_websiteParseRequestId, _parent),
+            kind,
+            VigiliaAgentTypes.VerificationStage.LlmVerdict,
+            0
+        );
+
+        emit LlmVerdictRequested(
+            _rootFromParent(_websiteParseRequestId, _parent),
+            llmRequestId,
+            _parent.taskId,
+            _parent.submissionId,
+            llmDeposit
+        );
+    }
+
     /// @dev Returns the escrow-facing root request ID for child stage callbacks.
     /// @param _requestId Platform request identifier for the current callback.
     /// @param _context Stored request context for the callback target.
@@ -920,6 +1329,15 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         returns (uint256 root)
     {
         root = _context.parentRequestId == 0 ? _requestId : _context.parentRequestId;
+    }
+
+    /// @dev Returns the existing root request ID from a parent context.
+    function _rootFromParent(uint256 _requestId, VigiliaMultiAgentTypes.RequestContext storage _context)
+        private
+        view
+        returns (uint256 root)
+    {
+        root = _rootRequestId(_requestId, _context);
     }
 
     /// @dev Creates a platform request, validates exact deposit, and stores context.
@@ -983,6 +1401,34 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         child.evidenceURI = _parent.evidenceURI;
         child.requirementsURI = _parent.requirementsURI;
         child.facts = _parent.facts;
+        child.parentRequestId = _parentRequestId;
+        child.isSettlement = true;
+        child.exists = true;
+    }
+
+    /// @dev Initializes a ThreeAgent child request while preserving the receiver-facing root request ID.
+    function _initThreeAgentChildContext(
+        uint256 _requestId,
+        VigiliaMultiAgentTypes.RequestContext storage _parent,
+        uint256 _parentRequestId,
+        VigiliaAgentTypes.AgentKind _kind,
+        VigiliaAgentTypes.VerificationStage _stage,
+        uint256 _prepaidBudget
+    ) private {
+        VigiliaMultiAgentTypes.RequestContext storage child = requests[_requestId];
+        child.taskId = _parent.taskId;
+        child.submissionId = _parent.submissionId;
+        child.kind = _kind;
+        child.requester = _parent.requester;
+        child.inputHash = keccak256(abi.encode(_parent.evidenceURI, _parent.requirementsURI, _stage));
+        child.workflow = VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict;
+        child.stage = _stage;
+        child.evidenceURI = _parent.evidenceURI;
+        child.requirementsURI = _parent.requirementsURI;
+        child.facts = _parent.facts;
+        child.websiteURI = _parent.websiteURI;
+        child.websiteExtract = _parent.websiteExtract;
+        child.prepaidBudget = _prepaidBudget;
         child.parentRequestId = _parentRequestId;
         child.isSettlement = true;
         child.exists = true;
@@ -1066,13 +1512,14 @@ contract VigiliaMultiAgentVerifier is IVigiliaVerifier {
         }
     }
 
-    /// @dev Credits unused prepaid LLM budget when a two-agent JSON facts stage fails before LLM starts.
+    /// @dev Credits unused prepaid workflow budget when a multi-stage workflow fails before a later stage starts.
     function _creditUnusedPrepaidBudget(uint256 _requestId, VigiliaMultiAgentTypes.RequestContext storage _context)
         private
     {
         if (
-            _context.workflow != VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict
-                || _context.stage != VigiliaAgentTypes.VerificationStage.JsonFacts || _context.prepaidBudget == 0
+            (_context.workflow != VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict
+                    && _context.workflow != VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict)
+                || _context.prepaidBudget == 0
         ) {
             return;
         }

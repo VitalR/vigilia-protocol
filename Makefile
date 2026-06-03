@@ -9,7 +9,7 @@ MULTI_AGENT_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaMultiAgentVerifier.s.sol
 MULTI_SETTLEMENT_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaMultiAgentSettlement.s.sol:DeployVigiliaMultiAgentSettlement
 MULTI_SETTLEMENT_DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312-two-agent-settlement-hardened.json
 GRANT_ROUND_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaGrantRound.s.sol:DeployVigiliaGrantRound
-GRANT_ROUND_DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312-grant-round.json
+GRANT_ROUND_DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312-grant-round-three-agent.json
 GRANT_ROUND_DEMO_SCRIPT ?= script/demo/VigiliaGrantRoundDemo.s.sol:VigiliaGrantRoundDemo
 MULTI_SETTLEMENT_DEMO_SCRIPT ?= script/demo/VigiliaMultiAgentSettlementDemo.s.sol:VigiliaMultiAgentSettlementDemo
 DEMO_SCRIPT ?= script/demo/VigiliaJsonApiSmokeDemo.s.sol:VigiliaJsonApiSmokeDemo
@@ -52,12 +52,19 @@ DEMO_CALL_GAS_LIMIT ?= 10000000
 	grant-round-verify-all \
 	grant-demo grant-demo-inspect grant-demo-create-round grant-demo-fund-round \
 	grant-demo-submit-application grant-demo-submit-complete grant-demo-submit-needs-review \
-	grant-demo-submit-incomplete grant-demo-submit-malformed grant-demo-request-screening \
+	grant-demo-submit-incomplete grant-demo-submit-malformed \
+	grant-demo-submit-three-agent-complete grant-demo-submit-three-agent-needs-review \
+	grant-demo-submit-three-agent-incomplete grant-demo-submit-three-agent-malformed \
+	grant-demo-request-screening \
 	grant-demo-request-screening-complete grant-demo-request-screening-needs-review \
 	grant-demo-request-screening-incomplete grant-demo-request-screening-malformed \
 	grant-demo-request-screening-cast grant-demo-request-screening-complete-cast \
 	grant-demo-request-screening-needs-review-cast grant-demo-request-screening-incomplete-cast \
 	grant-demo-request-screening-malformed-cast \
+	grant-demo-request-screening-three-agent-cast grant-demo-request-screening-three-agent-complete-cast \
+	grant-demo-request-screening-three-agent-needs-review-cast \
+	grant-demo-request-screening-three-agent-incomplete-cast \
+	grant-demo-request-screening-three-agent-malformed-cast \
 	grant-demo-manual-screen-complete grant-demo-manual-screen-needs-review \
 	grant-demo-manual-screen-incomplete grant-demo-select-finalists grant-demo-reject-application \
 	grant-demo-finalize-round grant-demo-claim-prize grant-demo-refund-unallocated \
@@ -136,6 +143,7 @@ help:
 	@echo "  make grant-round-show-deployment Print GrantRound deployment artifact"
 	@echo "  make grant-round-bind-verifier   Bind a fresh verifier to a GrantRound receiver"
 	@echo "  make grant-round-verifier-deposit Print GrantRound two-agent workflow deposit"
+	@echo "  make grant-round-three-agent-verifier-deposit Print GrantRound three-agent workflow deposit"
 	@echo "  make grant-round-verify-all      Verify GrantRound contracts and live binding"
 	@echo ""
 	@echo "GrantRound demo:"
@@ -143,7 +151,9 @@ help:
 	@echo "  make grant-demo-create-round     Create a TwoAgent grant round by default"
 	@echo "  make grant-demo-fund-round       Fund GRANT_ROUND_ID exactly"
 	@echo "  make grant-demo-submit-complete  Submit public Complete facts evidence"
+	@echo "  make grant-demo-submit-three-agent-complete Submit public Complete bundle evidence"
 	@echo "  make grant-demo-request-screening-complete Request async TwoAgent screening"
+	@echo "  make grant-demo-request-screening-three-agent-cast Direct cast fallback for ThreeAgent screening"
 	@echo "  make grant-demo-request-screening-cast Direct cast fallback for live request screening"
 	@echo "  make grant-demo-select-finalists Select GRANT_APPLICATION_IDS after deadline"
 	@echo "  make grant-demo-finalize-round   Finalize so selected finalists can claim"
@@ -472,6 +482,10 @@ grant-round-verifier-deposit:
 	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_GRANT_ROUND_VERIFIER"
 	@cast call "$$VIGILIA_GRANT_ROUND_VERIFIER" "minimumRequestDepositForWorkflow(uint8)(uint256)" 3 --rpc-url "$$SOMNIA_RPC_URL"
 
+grant-round-three-agent-verifier-deposit:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_GRANT_ROUND_VERIFIER"
+	@cast call "$$VIGILIA_GRANT_ROUND_VERIFIER" "minimumRequestDepositForWorkflow(uint8)(uint256)" 4 --rpc-url "$$SOMNIA_RPC_URL"
+
 grant-round-verify-verifier:
 	@$(MAKE) --no-print-directory require-env VARS="DEPLOYER_PRIVATE_KEY SOMNIA_CHAIN_ID SOMNIA_BLOCKSCOUT_API SOMNIA_AGENT_PLATFORM SOMNIA_JSON_API_AGENT_ID SOMNIA_LLM_INFERENCE_AGENT_ID AGENT_SUBCOMMITTEE_SIZE VIGILIA_GRANT_ROUND_VERIFIER"
 	@DEPLOYER=$${DEPLOYER_ADDRESS:-$$(cast wallet address --private-key "$$DEPLOYER_PRIVATE_KEY")}; \
@@ -536,6 +550,18 @@ grant-demo-submit-incomplete:
 grant-demo-submit-malformed:
 	DEMO_ACTION=submit-application-malformed $(MAKE) --no-print-directory grant-demo
 
+grant-demo-submit-three-agent-complete:
+	DEMO_ACTION=submit-three-agent-complete $(MAKE) --no-print-directory grant-demo
+
+grant-demo-submit-three-agent-needs-review:
+	DEMO_ACTION=submit-three-agent-needs-review $(MAKE) --no-print-directory grant-demo
+
+grant-demo-submit-three-agent-incomplete:
+	DEMO_ACTION=submit-three-agent-incomplete $(MAKE) --no-print-directory grant-demo
+
+grant-demo-submit-three-agent-malformed:
+	DEMO_ACTION=submit-three-agent-malformed $(MAKE) --no-print-directory grant-demo
+
 grant-demo-request-screening:
 	DEMO_ACTION=request-screening $(MAKE) --no-print-directory grant-demo
 
@@ -571,6 +597,27 @@ grant-demo-request-screening-needs-review-cast: grant-demo-request-screening-cas
 grant-demo-request-screening-incomplete-cast: grant-demo-request-screening-cast
 
 grant-demo-request-screening-malformed-cast: grant-demo-request-screening-cast
+
+grant-demo-request-screening-three-agent-cast:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_GRANT_ROUND GRANT_APPLICATION_ID GRANT_ROUND_THREE_AGENT_WORKFLOW_DEPOSIT_WEI"
+	@REQUESTER_KEY="$${GRANT_REQUESTER_PRIVATE_KEY:-$${SPONSOR_PRIVATE_KEY:-$$DEPLOYER_PRIVATE_KEY}}"; \
+	if [[ -z "$$REQUESTER_KEY" ]]; then echo "Missing required env var: GRANT_REQUESTER_PRIVATE_KEY, SPONSOR_PRIVATE_KEY, or DEPLOYER_PRIVATE_KEY"; exit 1; fi; \
+	echo "Direct cast ThreeAgent requestApplicationScreening for GRANT_APPLICATION_ID=$$GRANT_APPLICATION_ID"; \
+	echo "Requester key selection: GRANT_REQUESTER_PRIVATE_KEY, else SPONSOR_PRIVATE_KEY, else DEPLOYER_PRIVATE_KEY"; \
+	cast send "$$VIGILIA_GRANT_ROUND" "requestApplicationScreening(uint256)" "$$GRANT_APPLICATION_ID" \
+		--value "$$GRANT_ROUND_THREE_AGENT_WORKFLOW_DEPOSIT_WEI" \
+		--rpc-url "$$SOMNIA_RPC_URL" \
+		--private-key "$$REQUESTER_KEY" \
+		--legacy \
+		--gas-limit "$(DEMO_GAS_LIMIT)"
+
+grant-demo-request-screening-three-agent-complete-cast: grant-demo-request-screening-three-agent-cast
+
+grant-demo-request-screening-three-agent-needs-review-cast: grant-demo-request-screening-three-agent-cast
+
+grant-demo-request-screening-three-agent-incomplete-cast: grant-demo-request-screening-three-agent-cast
+
+grant-demo-request-screening-three-agent-malformed-cast: grant-demo-request-screening-three-agent-cast
 
 grant-demo-manual-screen-complete:
 	DEMO_ACTION=manual-screen-complete $(MAKE) --no-print-directory grant-demo

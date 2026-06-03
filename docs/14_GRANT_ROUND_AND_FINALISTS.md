@@ -83,7 +83,7 @@ enum ScreeningMode {
 
 ### TwoAgent
 
-Current proven fallback while Website Parse is being proven against real hosted HTML.
+Current proven fallback and compatibility path.
 
 ```text
 JSON API facts
@@ -107,7 +107,7 @@ Current proven fallback: TwoAgent
 
 ### ThreeAgent
 
-Preferred target mode when Website Parse succeeds reliably against real HTML.
+Preferred target mode for a fresh ThreeAgent-capable deployment after full E2E proof.
 
 ```text
 JSON API facts
@@ -117,7 +117,7 @@ JSON API facts
 -> finalist claims
 ```
 
-The current contract stores `ThreeAgent` at the round level, but request-time support remains gated until the verifier exposes a proven `JsonFactsAndWebsiteToLlmVerdict` workflow. Do not claim this mode is live until there is a real Website Parse proof.
+The v0.4.0 source adds `JsonFactsAndWebsiteToLlmVerdict` so a fresh GrantRound-bound verifier can run this flow. Do not claim this mode is live until there is a full GrantRound E2E proof: Website Parse callback, LLM final bounded verdict, GrantRound `recordVerdict`, judge/sponsor finalist selection, finalization, and claim.
 
 ### Manual Fallback / Recovery
 
@@ -204,7 +204,7 @@ Implemented now:
 - exact full-pool funding;
 - one application per address per round;
 - two-agent workflow request path;
-- `ThreeAgent` round configuration with request-time gate until verifier support exists;
+- `ThreeAgent` workflow support in source/tests for fresh v0.4.0 deployment;
 - verifier receiver compatibility;
 - manual screening fallback;
 - judge/sponsor finalist selection;
@@ -212,11 +212,11 @@ Implemented now:
 - unallocated sponsor refunds;
 - safe cancellation before applications make cancellation unsafe;
 - deployed fresh GrantRound-bound multi-agent verifier on Somnia testnet;
-- `VigiliaGrantRoundDemo` script and Makefile workflow for the current proven TwoAgent fallback campaign.
+- `VigiliaGrantRoundDemo` script and Makefile workflow for the proven TwoAgent campaign and fresh ThreeAgent proof path.
 
 Future work:
 
-- proven Website Parse workflow before presenting `ThreeAgent` as the flagship live demo;
+- fresh live ThreeAgent deployment and full E2E proof before presenting `ThreeAgent` as the flagship live demo;
 - frontend review board;
 - Data Streams publisher for round/application/finalist history;
 - optional tiered prizes;

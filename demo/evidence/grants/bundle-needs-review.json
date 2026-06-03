@@ -1,0 +1,8 @@
+{
+  "facts": "repo_exists=true; readme_setup=true; deployment_address_present=unclear; demo_url_present=true; tests_passed=unknown",
+  "websiteURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants/needs-review-project.html",
+  "projectURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants/needs-review-project.html",
+  "repoURI": "https://github.com/VitalR/vigilia-protocol",
+  "demoURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants/needs-review-project.html",
+  "summary": "Project has repo, setup docs, and demo page, but deployment address and test proof require judge review."
+}

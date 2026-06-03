@@ -80,6 +80,39 @@ library VigiliaAgentStringLib {
         );
     }
 
+    /// @notice Builds the final ThreeAgent grant-screening prompt from requirements, JSON facts, and Website Parse.
+    /// @param _requirementsURI Grant requirements text or URI stored on the parent request.
+    /// @param _facts Structured facts returned by the JSON API facts stage.
+    /// @param _websiteExtract Website Parse evidence returned from the project HTML page.
+    /// @param _evidenceURI Original evidence bundle URI.
+    /// @param _websiteURI Project HTML URI parsed by Website Parse.
+    /// @return prompt Prompt forwarded to `inferString`.
+    function threeAgentGrantVerdictPrompt(
+        string memory _requirementsURI,
+        string memory _facts,
+        string memory _websiteExtract,
+        string memory _evidenceURI,
+        string memory _websiteURI
+    ) internal pure returns (string memory prompt) {
+        prompt = string.concat(
+            "Grant requirements URI or text:\n",
+            _requirementsURI,
+            "\n\nStructured JSON facts:\n",
+            _facts,
+            "\n\nWebsite Parse evidence:\n",
+            _websiteExtract,
+            "\n\nEvidence bundle URI:\n",
+            _evidenceURI,
+            "\n\nWebsite URI:\n",
+            _websiteURI,
+            "\n\nClassify this grant application based only on the supplied requirements, JSON facts, and website evidence.\n",
+            "Complete means all required evidence appears present.\n",
+            "NeedsReview means important evidence is unclear, ambiguous, or partially present.\n",
+            "Incomplete means required evidence is missing or contradicted.\n",
+            "Return exactly one allowed value."
+        );
+    }
+
     /// @notice Provides a deterministic on-chain note that off-chain indexers can pair with Somnia receipt APIs.
     /// @param _requestId Somnia platform request identifier.
     /// @return notesURI Deterministic notes URI prefix.

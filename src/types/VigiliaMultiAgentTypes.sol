@@ -33,6 +33,8 @@ library VigiliaMultiAgentTypes {
     /// @param evidenceURI Public evidence URI under verification.
     /// @param requirementsURI Public task requirements URI or requirements text.
     /// @param facts Structured facts returned by the JSON API facts stage.
+    /// @param websiteURI Public project or demo HTML URI returned by the JSON websiteURI stage.
+    /// @param websiteExtract Website Parse result returned before final LLM classification.
     /// @param prepaidBudget Native-token budget retained for the next stage.
     /// @param parentRequestId Escrow-facing root platform request for child stage requests.
     /// @param isCanary True when this request must not touch escrow settlement.
@@ -50,6 +52,8 @@ library VigiliaMultiAgentTypes {
         string evidenceURI;
         string requirementsURI;
         string facts;
+        string websiteURI;
+        string websiteExtract;
         uint256 prepaidBudget;
         uint256 parentRequestId;
         bool isCanary;

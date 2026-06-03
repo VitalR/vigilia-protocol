@@ -340,8 +340,8 @@ contract VigiliaGrantRound is IVigiliaEscrowVerdictReceiver {
     }
 
     /// @notice Requests Somnia-agent screening for an application using its round's configured screening mode.
-    /// @dev `ThreeAgent` is stored at the round level but reverts until the verifier exposes a proven Website Parse
-    /// workflow. The callback can only update screening metadata.
+    /// @dev The callback can only update screening metadata. Finalist selection and fund movement remain manual
+    /// judge/sponsor actions.
     /// @param _applicationId Application to screen.
     /// @return requestId Verifier request identifier stored on the application.
     function requestApplicationScreening(uint256 _applicationId) external payable returns (bytes32 requestId) {
@@ -671,8 +671,8 @@ contract VigiliaGrantRound is IVigiliaEscrowVerdictReceiver {
     }
 
     /// @notice Maps a GrantRound screening mode to a verifier settlement workflow.
-    /// @dev `ThreeAgent` intentionally reverts until the verifier supports a proven Website Parse workflow. This keeps
-    /// the data model ready without overstating live capabilities.
+    /// @dev `TwoAgent` keeps the proven JSON facts -> LLM workflow. `ThreeAgent` uses the fresh verifier workflow that
+    /// enriches JSON facts with Website Parse before final LLM classification.
     /// @param _screeningMode Round screening mode.
     /// @return workflow Verifier workflow to request.
     function _workflowFor(ScreeningMode _screeningMode)
@@ -682,6 +682,9 @@ contract VigiliaGrantRound is IVigiliaEscrowVerdictReceiver {
     {
         if (_screeningMode == ScreeningMode.TwoAgent) {
             return VigiliaAgentTypes.SettlementWorkflow.JsonFactsToLlmVerdict;
+        }
+        if (_screeningMode == ScreeningMode.ThreeAgent) {
+            return VigiliaAgentTypes.SettlementWorkflow.JsonFactsAndWebsiteToLlmVerdict;
         }
         revert UnsupportedScreeningMode(_screeningMode);
     }
