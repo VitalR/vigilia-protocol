@@ -212,11 +212,11 @@ Implemented now:
 - unallocated sponsor refunds;
 - safe cancellation before applications make cancellation unsafe;
 - deployed fresh GrantRound-bound multi-agent verifier on Somnia testnet;
-- `VigiliaGrantRoundDemo` script and Makefile workflow for the proven TwoAgent campaign and fresh ThreeAgent proof path.
+- `VigiliaGrantRoundDemo` script and Makefile workflow for proven TwoAgent and ThreeAgent campaigns;
+- fresh v0.4.0 ThreeAgent deployment and full E2E proof.
 
 Future work:
 
-- fresh live ThreeAgent deployment and full E2E proof before presenting `ThreeAgent` as the flagship live demo;
 - frontend review board;
 - Data Streams publisher for round/application/finalist history;
 - optional tiered prizes;

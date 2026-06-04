@@ -444,4 +444,89 @@ No terminal state traps escrow without at least one party action (`claimTo`, `wi
 - Verifier Blockscout verification for the v0.2.2 multi-agent verifier address may still require manual
   standard-json submission on Somnia testnet.
 
-Proof package: [`docs/proofs/2026-06-01-two-agent-settlement-rpc-proof.md`](./proofs/2026-06-01-two-agent-settlement-rpc-proof.md).
+## Final Dashboard Demo Targets
+
+The final fixed-work proof can be run through high-level Makefile wrappers
+instead of direct `cast` commands. They pin the hardened v0.2.3 escrow/verifier,
+5 STT task amount, and 0.36 STT TwoAgent workflow deposit by default, while
+still accepting overrides such as `DEMO_TASK_ID=<id>`.
+
+Read-only setup:
+
+```bash
+make final-demo-escrow-env
+make final-demo-escrow-preflight
+make final-demo-escrow-inspect-task
+```
+
+`final-demo-escrow-inspect-task` uses direct `cast call` reads for
+`tasks(taskId)` and, when configured, `submissions(submissionId)`. Override the
+submission read with `DEMO_SUBMISSION_ID=<id>` if the inspected task is not the
+recorded final proof task.
+
+Create, fund, submit, and claim:
+
+```bash
+make final-demo-escrow-create-task
+export DEMO_TASK_ID=<task id>
+
+make final-demo-escrow-fund-task DEMO_TASK_ID=$DEMO_TASK_ID
+make final-demo-escrow-submit-complete DEMO_TASK_ID=$DEMO_TASK_ID
+
+# Wait for JSON and LLM callbacks, then inspect.
+make final-demo-escrow-inspect-task DEMO_TASK_ID=$DEMO_TASK_ID
+make final-demo-escrow-claim-task DEMO_TASK_ID=$DEMO_TASK_ID
+```
+
+Key selection:
+
+```text
+client: CLIENT_PRIVATE_KEY, else SPONSOR_PRIVATE_KEY, else DEPLOYER_PRIVATE_KEY
+contractor: CONTRACTOR_PRIVATE_KEY, else APPLICANT_ONE_PRIVATE_KEY
+```
+
+For dashboard demos, do not use `APPLICANT_PRIVATE_KEY` as contractor if it
+equals the sponsor or deployer key. The final proof used separate client and
+contractor accounts.
+
+The already-recorded proof defaults to task `13`, amount `5 STT`, final state
+`Claimed`.
+
+## Retry Diagnostics
+
+The failed `retryVerification(11)` proof now has Makefile diagnostics:
+
+```bash
+make escrow-retry-decode
+make escrow-retry-inspect-task
+make escrow-retry-simulate-zero
+make escrow-retry-simulate-with-deposit
+make escrow-retry-diagnose
+```
+
+`escrow-retry-simulate-zero` is expected to revert for the known failed path.
+`escrow-retry-simulate-with-deposit` should succeed as an `eth_call` when task
+state, caller, and evidence remain valid.
+
+The optional broadcast helper is intentionally guarded:
+
+```bash
+make escrow-retry-with-deposit CONFIRM_BROADCAST=1
+```
+
+Use it only after confirming the task is still `VerificationFailed`, the caller
+is the client or contractor, and the stored evidence URI is still valid.
+
+Proof packages:
+
+- [`docs/proofs/2026-06-01-two-agent-settlement-rpc-proof.md`](./proofs/2026-06-01-two-agent-settlement-rpc-proof.md)
+- [`docs/proofs/2026-06-03-final-demo-scenarios.md`](./proofs/2026-06-03-final-demo-scenarios.md)
+- [`docs/proofs/2026-06-03-escrow-retry-failure-investigation.md`](./proofs/2026-06-03-escrow-retry-failure-investigation.md)
+
+The final demo proof records task `13`: separate client and contractor
+accounts, 5 STT funded amount, TwoAgent `facts-complete.json` verification,
+`VerifiedComplete`, and contractor claim. The retry investigation records a
+failed `retryVerification(11)` transaction that sent `0` value. Direct
+simulation confirmed the retry path requires the fresh `0.36 STT` workflow
+deposit; this is a frontend transaction construction issue, not an escrow
+accounting failure.

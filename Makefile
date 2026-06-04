@@ -24,6 +24,27 @@ GAS_ESTIMATE_MULTIPLIER ?= 200
 DEMO_GAS_ESTIMATE_MULTIPLIER ?= 200
 DEMO_GAS_LIMIT ?= 10000000
 DEMO_CALL_GAS_LIMIT ?= 10000000
+FINAL_DEMO_GRANT_ROUND ?= 0x5aE1918Dcaa0A00a1d647e1c9946F7FF3fB61679
+FINAL_DEMO_GRANT_VERIFIER ?= 0xb0a1cdf062B4c295fC2A00F4bf1C84062F40d8e4
+FINAL_DEMO_GRANT_ROUND_ID ?= 8
+FINAL_DEMO_GRANT_COMPLETE_ONE_APP_ID ?= 14
+FINAL_DEMO_GRANT_COMPLETE_TWO_APP_ID ?= 15
+FINAL_DEMO_GRANT_INCOMPLETE_APP_ID ?= 16
+FINAL_DEMO_GRANT_NEEDS_REVIEW_APP_ID ?= 17
+FINAL_DEMO_GRANT_PRIZE_AMOUNT_WEI ?= 3000000000000000000
+FINAL_DEMO_GRANT_MAX_WINNERS ?= 3
+FINAL_DEMO_GRANT_DEPOSIT_WEI ?= 810000000000000000
+FINAL_DEMO_GAS_LIMIT ?= 30000000
+FINAL_DEMO_ESCROW ?= 0x1FA22E3a97dabB9a8C6de3a5B59eF6cCD5B2F4b9
+FINAL_DEMO_ESCROW_VERIFIER ?= 0xdE0aC9700E591b54A418665575f2e1d329D78f3D
+FINAL_DEMO_ESCROW_TASK_ID ?= 13
+FINAL_DEMO_ESCROW_SUBMISSION_ID ?= 9
+FINAL_DEMO_ESCROW_TASK_AMOUNT_WEI ?= 5000000000000000000
+TWO_AGENT_WORKFLOW_DEPOSIT_WEI ?= 360000000000000000
+ESCROW_RETRY_TASK_ID ?= 11
+ESCROW_RETRY_SUBMISSION_ID ?= 8
+ESCROW_RETRY_TX ?= 0x54729c183d0e34c72ea309d3a81a55ee3e8bc118357cdaf67701d0a56d595e22
+ESCROW_RETRY_FROM ?= 0x5a122Bb8Ade6EAfa9a6fB22a573C09f7E68Ac28a
 
 .PHONY: help fmt build test check env-check account balance platform-code platform-deposit platform-check \
 	deploy-somnia deploy-somnia-dry-run show-deployment verify-somnia-escrow verify-somnia-json-verifier verify-somnia-verifier \
@@ -70,6 +91,20 @@ DEMO_CALL_GAS_LIMIT ?= 10000000
 	grant-demo-finalize-round grant-demo-claim-prize grant-demo-refund-unallocated \
 	grant-demo-withdraw-pending grant-demo-cancel-round \
 	grant-demo-full-two-agent-happy-path-prep grant-demo-full-two-agent-review-board-prep \
+	final-demo-grant-env final-demo-grant-preflight final-demo-grant-create-round \
+	final-demo-grant-fund-round final-demo-grant-submit-complete-one \
+	final-demo-grant-submit-complete-two final-demo-grant-submit-needs-review \
+	final-demo-grant-submit-incomplete final-demo-grant-request-complete-one \
+	final-demo-grant-request-complete-two final-demo-grant-request-needs-review \
+	final-demo-grant-request-incomplete final-demo-grant-inspect \
+	final-demo-grant-select-finalists final-demo-grant-finalize \
+	final-demo-grant-claim-complete-one final-demo-grant-claim-complete-two \
+	final-demo-grant-claim-needs-review \
+	final-demo-escrow-env final-demo-escrow-preflight final-demo-escrow-create-task \
+	final-demo-escrow-fund-task final-demo-escrow-submit-complete \
+	final-demo-escrow-inspect-task final-demo-escrow-claim-task \
+	escrow-retry-decode escrow-retry-inspect-task escrow-retry-simulate-zero \
+	escrow-retry-simulate-with-deposit escrow-retry-diagnose escrow-retry-with-deposit \
 	require-env
 
 help:
@@ -160,6 +195,38 @@ help:
 	@echo "  make grant-demo-claim-prize      Claim selected GRANT_APPLICATION_ID as applicant"
 	@echo "  make grant-demo-refund-unallocated Credit unallocated sponsor refund"
 	@echo "  make grant-demo-withdraw-pending Withdraw pending sponsor refund"
+	@echo ""
+	@echo "Final demo wrappers:"
+	@echo "  make final-demo-grant-env       Print v0.4 ThreeAgent GrantRound demo settings"
+	@echo "  make final-demo-grant-preflight Read-only v0.4 GrantRound binding/deposit checks"
+	@echo "  make final-demo-grant-create-round Create final-style ThreeAgent round"
+	@echo "  make final-demo-grant-fund-round Fund final-style round, default GRANT_ROUND_ID=8"
+	@echo "  make final-demo-grant-submit-complete-one Submit Complete bundle as applicant 1"
+	@echo "  make final-demo-grant-submit-complete-two Submit Complete bundle as applicant 3"
+	@echo "  make final-demo-grant-submit-needs-review Submit NeedsReview bundle as applicant 2"
+	@echo "  make final-demo-grant-submit-incomplete Submit Incomplete bundle as applicant 4"
+	@echo "  make final-demo-grant-request-complete-one Direct cast ThreeAgent request for app 14"
+	@echo "  make final-demo-grant-request-complete-two Direct cast ThreeAgent request for app 15"
+	@echo "  make final-demo-grant-request-needs-review Direct cast ThreeAgent request for app 17"
+	@echo "  make final-demo-grant-request-incomplete Direct cast ThreeAgent request for app 16"
+	@echo "  make final-demo-grant-select-finalists Select default finalists 14,15,17"
+	@echo "  make final-demo-grant-finalize Finalize default round 8"
+	@echo "  make final-demo-grant-claim-complete-one Claim app 14"
+	@echo "  make final-demo-grant-claim-complete-two Claim app 15"
+	@echo "  make final-demo-grant-claim-needs-review Claim app 17"
+	@echo "  make final-demo-escrow-env      Print v0.2.3 fixed-work demo settings"
+	@echo "  make final-demo-escrow-preflight Read-only escrow binding/deposit checks"
+	@echo "  make final-demo-escrow-create-task Create 5 STT ImmediateAutoClaim task"
+	@echo "  make final-demo-escrow-fund-task Fund final demo task, default DEMO_TASK_ID=13"
+	@echo "  make final-demo-escrow-submit-complete Submit Complete facts evidence"
+	@echo "  make final-demo-escrow-inspect-task Inspect final demo task"
+	@echo "  make final-demo-escrow-claim-task Claim as configured contractor"
+	@echo "  make escrow-retry-decode       Decode retryVerification(11) tx calldata/receipt"
+	@echo "  make escrow-retry-inspect-task Read task/submission state for retry diagnosis"
+	@echo "  make escrow-retry-simulate-zero Simulate failed zero-value retry"
+	@echo "  make escrow-retry-simulate-with-deposit Simulate retry with 0.36 STT deposit"
+	@echo "  make escrow-retry-diagnose      Decode and simulate retryVerification(11)"
+	@echo "  make escrow-retry-with-deposit CONFIRM_BROADCAST=1 Broadcast retry with deposit"
 	@echo ""
 	@echo "GrantRound current fallback campaign order:"
 	@echo "  make grant-demo-create-round && export GRANT_ROUND_ID=<id>"
@@ -654,6 +721,287 @@ grant-demo-full-two-agent-happy-path-prep:
 
 grant-demo-full-two-agent-review-board-prep:
 	DEMO_ACTION=full-two-agent-review-board-prep $(MAKE) --no-print-directory grant-demo
+
+final-demo-grant-env:
+	@echo "VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND)"
+	@echo "VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER)"
+	@echo "GRANT_SCREENING_MODE=1"
+	@echo "GRANT_PRIZE_AMOUNT_WEI=$(FINAL_DEMO_GRANT_PRIZE_AMOUNT_WEI)"
+	@echo "GRANT_MAX_WINNERS=$(FINAL_DEMO_GRANT_MAX_WINNERS)"
+	@echo "GRANT_ROUND_THREE_AGENT_WORKFLOW_DEPOSIT_WEI=$(FINAL_DEMO_GRANT_DEPOSIT_WEI)"
+	@echo "DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)"
+	@echo "Default proof round: $(FINAL_DEMO_GRANT_ROUND_ID)"
+	@echo "Default proof finalists: $(FINAL_DEMO_GRANT_COMPLETE_ONE_APP_ID),$(FINAL_DEMO_GRANT_COMPLETE_TWO_APP_ID),$(FINAL_DEMO_GRANT_NEEDS_REVIEW_APP_ID)"
+	@echo "Default proof incomplete app: $(FINAL_DEMO_GRANT_INCOMPLETE_APP_ID)"
+
+final-demo-grant-preflight:
+	@$(MAKE) --no-print-directory grant-round-verify-state \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER)
+	@$(MAKE) --no-print-directory grant-round-three-agent-verifier-deposit \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER)
+	@$(MAKE) --no-print-directory grant-demo-inspect \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_ROUND_ID=$${GRANT_ROUND_ID:-$(FINAL_DEMO_GRANT_ROUND_ID)}
+
+final-demo-grant-create-round:
+	@$(MAKE) --no-print-directory grant-demo-create-round \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_SCREENING_MODE=1 \
+		GRANT_PRIZE_AMOUNT_WEI=$(FINAL_DEMO_GRANT_PRIZE_AMOUNT_WEI) \
+		GRANT_MAX_WINNERS=$(FINAL_DEMO_GRANT_MAX_WINNERS) \
+		GRANT_FAST_DEADLINES=true \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-fund-round:
+	@$(MAKE) --no-print-directory grant-demo-fund-round \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_ROUND_ID=$${GRANT_ROUND_ID:-$(FINAL_DEMO_GRANT_ROUND_ID)} \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-submit-complete-one:
+	@$(MAKE) --no-print-directory grant-demo-submit-three-agent-complete \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_SCREENING_MODE=1 \
+		GRANT_ROUND_ID=$${GRANT_ROUND_ID:-$(FINAL_DEMO_GRANT_ROUND_ID)} \
+		GRANT_APPLICANT_INDEX=1 \
+		GRANT_EVIDENCE_URI=$$GRANT_COMPLETE_BUNDLE_EVIDENCE_URI \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-submit-complete-two:
+	@$(MAKE) --no-print-directory grant-demo-submit-three-agent-complete \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_SCREENING_MODE=1 \
+		GRANT_ROUND_ID=$${GRANT_ROUND_ID:-$(FINAL_DEMO_GRANT_ROUND_ID)} \
+		GRANT_APPLICANT_INDEX=3 \
+		GRANT_EVIDENCE_URI=$$GRANT_COMPLETE_BUNDLE_EVIDENCE_URI \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-submit-needs-review:
+	@$(MAKE) --no-print-directory grant-demo-submit-three-agent-needs-review \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_SCREENING_MODE=1 \
+		GRANT_ROUND_ID=$${GRANT_ROUND_ID:-$(FINAL_DEMO_GRANT_ROUND_ID)} \
+		GRANT_APPLICANT_INDEX=2 \
+		GRANT_EVIDENCE_URI=$$GRANT_NEEDS_REVIEW_BUNDLE_EVIDENCE_URI \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-submit-incomplete:
+	@$(MAKE) --no-print-directory grant-demo-submit-three-agent-incomplete \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_SCREENING_MODE=1 \
+		GRANT_ROUND_ID=$${GRANT_ROUND_ID:-$(FINAL_DEMO_GRANT_ROUND_ID)} \
+		GRANT_APPLICANT_INDEX=4 \
+		GRANT_EVIDENCE_URI=$$GRANT_INCOMPLETE_BUNDLE_EVIDENCE_URI \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-request-complete-one:
+	@$(MAKE) --no-print-directory grant-demo-request-screening-three-agent-complete-cast \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		GRANT_APPLICATION_ID=$${GRANT_APPLICATION_ID:-$(FINAL_DEMO_GRANT_COMPLETE_ONE_APP_ID)} \
+		GRANT_ROUND_THREE_AGENT_WORKFLOW_DEPOSIT_WEI=$(FINAL_DEMO_GRANT_DEPOSIT_WEI) \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-request-complete-two:
+	@$(MAKE) --no-print-directory grant-demo-request-screening-three-agent-complete-cast \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		GRANT_APPLICATION_ID=$${GRANT_APPLICATION_ID:-$(FINAL_DEMO_GRANT_COMPLETE_TWO_APP_ID)} \
+		GRANT_ROUND_THREE_AGENT_WORKFLOW_DEPOSIT_WEI=$(FINAL_DEMO_GRANT_DEPOSIT_WEI) \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-request-needs-review:
+	@$(MAKE) --no-print-directory grant-demo-request-screening-three-agent-needs-review-cast \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		GRANT_APPLICATION_ID=$${GRANT_APPLICATION_ID:-$(FINAL_DEMO_GRANT_NEEDS_REVIEW_APP_ID)} \
+		GRANT_ROUND_THREE_AGENT_WORKFLOW_DEPOSIT_WEI=$(FINAL_DEMO_GRANT_DEPOSIT_WEI) \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-request-incomplete:
+	@$(MAKE) --no-print-directory grant-demo-request-screening-three-agent-incomplete-cast \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		GRANT_APPLICATION_ID=$${GRANT_APPLICATION_ID:-$(FINAL_DEMO_GRANT_INCOMPLETE_APP_ID)} \
+		GRANT_ROUND_THREE_AGENT_WORKFLOW_DEPOSIT_WEI=$(FINAL_DEMO_GRANT_DEPOSIT_WEI) \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-inspect:
+	@$(MAKE) --no-print-directory grant-demo-inspect \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_ROUND_ID=$${GRANT_ROUND_ID:-$(FINAL_DEMO_GRANT_ROUND_ID)} \
+		GRANT_APPLICATION_ID=$${GRANT_APPLICATION_ID:-$(FINAL_DEMO_GRANT_COMPLETE_ONE_APP_ID)}
+
+final-demo-grant-select-finalists:
+	@$(MAKE) --no-print-directory grant-demo-select-finalists \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_ROUND_ID=$${GRANT_ROUND_ID:-$(FINAL_DEMO_GRANT_ROUND_ID)} \
+		GRANT_APPLICATION_IDS=$${GRANT_APPLICATION_IDS:-$(FINAL_DEMO_GRANT_COMPLETE_ONE_APP_ID),$(FINAL_DEMO_GRANT_COMPLETE_TWO_APP_ID),$(FINAL_DEMO_GRANT_NEEDS_REVIEW_APP_ID)} \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-finalize:
+	@$(MAKE) --no-print-directory grant-demo-finalize-round \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_ROUND_ID=$${GRANT_ROUND_ID:-$(FINAL_DEMO_GRANT_ROUND_ID)} \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-claim-complete-one:
+	@$(MAKE) --no-print-directory grant-demo-claim-prize \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_APPLICATION_ID=$${GRANT_APPLICATION_ID:-$(FINAL_DEMO_GRANT_COMPLETE_ONE_APP_ID)} \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-claim-complete-two:
+	@$(MAKE) --no-print-directory grant-demo-claim-prize \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_APPLICATION_ID=$${GRANT_APPLICATION_ID:-$(FINAL_DEMO_GRANT_COMPLETE_TWO_APP_ID)} \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-grant-claim-needs-review:
+	@$(MAKE) --no-print-directory grant-demo-claim-prize \
+		VIGILIA_GRANT_ROUND=$(FINAL_DEMO_GRANT_ROUND) \
+		VIGILIA_GRANT_ROUND_VERIFIER=$(FINAL_DEMO_GRANT_VERIFIER) \
+		GRANT_APPLICATION_ID=$${GRANT_APPLICATION_ID:-$(FINAL_DEMO_GRANT_NEEDS_REVIEW_APP_ID)} \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-escrow-env:
+	@echo "VIGILIA_MULTI_AGENT_ESCROW=$(FINAL_DEMO_ESCROW)"
+	@echo "VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER=$(FINAL_DEMO_ESCROW_VERIFIER)"
+	@echo "DEMO_TASK_AMOUNT_WEI=$(FINAL_DEMO_ESCROW_TASK_AMOUNT_WEI)"
+	@echo "TWO_AGENT_WORKFLOW_DEPOSIT_WEI=$(TWO_AGENT_WORKFLOW_DEPOSIT_WEI)"
+	@echo "Default proof task: $(FINAL_DEMO_ESCROW_TASK_ID)"
+	@echo "Client key selection: CLIENT_PRIVATE_KEY, else SPONSOR_PRIVATE_KEY, else DEPLOYER_PRIVATE_KEY"
+	@echo "Contractor key selection: CONTRACTOR_PRIVATE_KEY, else APPLICANT_ONE_PRIVATE_KEY"
+
+final-demo-escrow-preflight:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL"
+	@$(MAKE) --no-print-directory multi-settlement-verifier-deposit \
+		VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER=$(FINAL_DEMO_ESCROW_VERIFIER)
+	@BOUND=$$(cast call "$(FINAL_DEMO_ESCROW_VERIFIER)" "escrow()(address)" --rpc-url "$$SOMNIA_RPC_URL"); \
+	CONFIGURED=$$(cast call "$(FINAL_DEMO_ESCROW)" "verifier()(address)" --rpc-url "$$SOMNIA_RPC_URL"); \
+	echo "escrow=$(FINAL_DEMO_ESCROW)"; \
+	echo "verifier=$(FINAL_DEMO_ESCROW_VERIFIER)"; \
+	echo "verifier.escrow=$$BOUND"; \
+	echo "escrow.verifier=$$CONFIGURED"
+
+final-demo-escrow-create-task:
+	@CLIENT_KEY="$${CLIENT_PRIVATE_KEY:-$${SPONSOR_PRIVATE_KEY:-$$DEPLOYER_PRIVATE_KEY}}"; \
+	CONTRACTOR_KEY="$${CONTRACTOR_PRIVATE_KEY:-$$APPLICANT_ONE_PRIVATE_KEY}"; \
+	if [[ -z "$$CLIENT_KEY" ]]; then echo "Missing required env var: CLIENT_PRIVATE_KEY, SPONSOR_PRIVATE_KEY, or DEPLOYER_PRIVATE_KEY"; exit 1; fi; \
+	if [[ -z "$$CONTRACTOR_KEY" ]]; then echo "Missing required env var: CONTRACTOR_PRIVATE_KEY or APPLICANT_ONE_PRIVATE_KEY"; exit 1; fi; \
+	$(MAKE) --no-print-directory multi-agent-demo-create-task-immediate-claim \
+		VIGILIA_MULTI_AGENT_ESCROW=$(FINAL_DEMO_ESCROW) \
+		VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER=$(FINAL_DEMO_ESCROW_VERIFIER) \
+		DEMO_TASK_AMOUNT_WEI=$(FINAL_DEMO_ESCROW_TASK_AMOUNT_WEI) \
+		DEPLOYER_PRIVATE_KEY="$$CLIENT_KEY" \
+		CLIENT_PRIVATE_KEY="$$CLIENT_KEY" \
+		CONTRACTOR_PRIVATE_KEY="$$CONTRACTOR_KEY" \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-escrow-fund-task:
+	@CLIENT_KEY="$${CLIENT_PRIVATE_KEY:-$${SPONSOR_PRIVATE_KEY:-$$DEPLOYER_PRIVATE_KEY}}"; \
+	if [[ -z "$$CLIENT_KEY" ]]; then echo "Missing required env var: CLIENT_PRIVATE_KEY, SPONSOR_PRIVATE_KEY, or DEPLOYER_PRIVATE_KEY"; exit 1; fi; \
+	$(MAKE) --no-print-directory multi-agent-demo-fund-task \
+		VIGILIA_MULTI_AGENT_ESCROW=$(FINAL_DEMO_ESCROW) \
+		VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER=$(FINAL_DEMO_ESCROW_VERIFIER) \
+		DEMO_TASK_ID=$${DEMO_TASK_ID:-$(FINAL_DEMO_ESCROW_TASK_ID)} \
+		DEPLOYER_PRIVATE_KEY="$$CLIENT_KEY" \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-escrow-submit-complete:
+	@CONTRACTOR_KEY="$${CONTRACTOR_PRIVATE_KEY:-$$APPLICANT_ONE_PRIVATE_KEY}"; \
+	if [[ -z "$$CONTRACTOR_KEY" ]]; then echo "Missing required env var: CONTRACTOR_PRIVATE_KEY or APPLICANT_ONE_PRIVATE_KEY"; exit 1; fi; \
+	$(MAKE) --no-print-directory multi-agent-demo-submit-facts-complete \
+		VIGILIA_MULTI_AGENT_ESCROW=$(FINAL_DEMO_ESCROW) \
+		VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER=$(FINAL_DEMO_ESCROW_VERIFIER) \
+		DEMO_TASK_ID=$${DEMO_TASK_ID:-$(FINAL_DEMO_ESCROW_TASK_ID)} \
+		VIGILIA_EVIDENCE_JSON_URL="$${VIGILIA_EVIDENCE_JSON_URL:-$$GRANT_COMPLETE_EVIDENCE_URI}" \
+		DEPLOYER_PRIVATE_KEY="$$CONTRACTOR_KEY" \
+		TWO_AGENT_WORKFLOW_DEPOSIT_WEI=$(TWO_AGENT_WORKFLOW_DEPOSIT_WEI) \
+		DEMO_GAS_LIMIT=$(FINAL_DEMO_GAS_LIMIT)
+
+final-demo-escrow-inspect-task:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL"
+	@TASK_ID="$${DEMO_TASK_ID:-$(FINAL_DEMO_ESCROW_TASK_ID)}"; \
+	SUBMISSION_ID="$${DEMO_SUBMISSION_ID:-$(FINAL_DEMO_ESCROW_SUBMISSION_ID)}"; \
+	echo "escrow=$(FINAL_DEMO_ESCROW)"; \
+	echo "taskId=$$TASK_ID"; \
+	cast call "$(FINAL_DEMO_ESCROW)" "tasks(uint256)(address,address,address,uint256,uint256,uint256,uint256,uint8,uint8,string,uint64,uint64)" "$$TASK_ID" --rpc-url "$$SOMNIA_RPC_URL"; \
+	if [[ -n "$$SUBMISSION_ID" ]]; then \
+		echo "submissionId=$$SUBMISSION_ID"; \
+		cast call "$(FINAL_DEMO_ESCROW)" "submissions(uint256)(uint256,address,string,bytes32,bytes32,uint8,uint64,uint64)" "$$SUBMISSION_ID" --rpc-url "$$SOMNIA_RPC_URL"; \
+	fi
+
+final-demo-escrow-claim-task:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL"
+	@CONTRACTOR_KEY="$${CONTRACTOR_PRIVATE_KEY:-$$APPLICANT_ONE_PRIVATE_KEY}"; \
+	if [[ -z "$$CONTRACTOR_KEY" ]]; then echo "Missing required env var: CONTRACTOR_PRIVATE_KEY or APPLICANT_ONE_PRIVATE_KEY"; exit 1; fi; \
+	cast send "$(FINAL_DEMO_ESCROW)" "claim(uint256)" "$${DEMO_TASK_ID:-$(FINAL_DEMO_ESCROW_TASK_ID)}" \
+		--gas-limit "$(FINAL_DEMO_GAS_LIMIT)" \
+		--legacy \
+		--rpc-url "$$SOMNIA_RPC_URL" \
+		--private-key "$$CONTRACTOR_KEY"
+
+escrow-retry-decode:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL"
+	@echo "selector:"
+	@cast 4byte 0x9e29c255 || true
+	@echo "calldata:"
+	@cast calldata-decode "retryVerification(uint256)" 0x9e29c255000000000000000000000000000000000000000000000000000000000000000b
+	@echo "tx:"
+	@cast tx "$(ESCROW_RETRY_TX)" --rpc-url "$$SOMNIA_RPC_URL"
+	@echo "receipt:"
+	@cast receipt "$(ESCROW_RETRY_TX)" --rpc-url "$$SOMNIA_RPC_URL"
+
+escrow-retry-inspect-task:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL"
+	@echo "escrow=$(FINAL_DEMO_ESCROW)"
+	@echo "taskId=$(ESCROW_RETRY_TASK_ID)"
+	@cast call "$(FINAL_DEMO_ESCROW)" "tasks(uint256)(address,address,address,uint256,uint256,uint256,uint256,uint8,uint8,string,uint64,uint64)" "$(ESCROW_RETRY_TASK_ID)" --rpc-url "$$SOMNIA_RPC_URL"
+	@echo "submissionId=$(ESCROW_RETRY_SUBMISSION_ID)"
+	@cast call "$(FINAL_DEMO_ESCROW)" "submissions(uint256)(uint256,address,string,bytes32,bytes32,uint8,uint64,uint64)" "$(ESCROW_RETRY_SUBMISSION_ID)" --rpc-url "$$SOMNIA_RPC_URL"
+
+escrow-retry-simulate-zero:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL"
+	@echo "Simulating retryVerification($(ESCROW_RETRY_TASK_ID)) with value=0; revert is expected for the known failed path."
+	@set +e; \
+	cast call "$(FINAL_DEMO_ESCROW)" "retryVerification(uint256)(bytes32)" "$(ESCROW_RETRY_TASK_ID)" \
+		--from "$(ESCROW_RETRY_FROM)" \
+		--rpc-url "$$SOMNIA_RPC_URL"; \
+	status=$$?; \
+	if [[ "$$status" -eq 0 ]]; then echo "Unexpected success for zero-value retry"; else echo "Expected zero-value retry revert observed"; fi
+
+escrow-retry-simulate-with-deposit:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL"
+	@echo "Simulating retryVerification($(ESCROW_RETRY_TASK_ID)) with value=$(TWO_AGENT_WORKFLOW_DEPOSIT_WEI)."
+	@cast call "$(FINAL_DEMO_ESCROW)" "retryVerification(uint256)(bytes32)" "$(ESCROW_RETRY_TASK_ID)" \
+		--from "$(ESCROW_RETRY_FROM)" \
+		--value "$(TWO_AGENT_WORKFLOW_DEPOSIT_WEI)" \
+		--rpc-url "$$SOMNIA_RPC_URL"
+
+escrow-retry-diagnose: escrow-retry-decode escrow-retry-inspect-task escrow-retry-simulate-zero escrow-retry-simulate-with-deposit
+
+escrow-retry-with-deposit:
+	@if [[ "$(CONFIRM_BROADCAST)" != "1" ]]; then \
+		echo "Refusing to broadcast. Re-run with CONFIRM_BROADCAST=1 after confirming task state, caller, and evidence URI."; \
+		exit 1; \
+	fi
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL CONTRACTOR_PRIVATE_KEY"
+	@cast send "$(FINAL_DEMO_ESCROW)" "retryVerification(uint256)" "$(ESCROW_RETRY_TASK_ID)" \
+		--value "$(TWO_AGENT_WORKFLOW_DEPOSIT_WEI)" \
+		--gas-limit "$(FINAL_DEMO_GAS_LIMIT)" \
+		--legacy \
+		--rpc-url "$$SOMNIA_RPC_URL" \
+		--private-key "$$CONTRACTOR_PRIVATE_KEY"
 
 multi-settlement-verifier-deposit:
 	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER"

@@ -390,23 +390,27 @@ deployed contract address
 demo transaction or video
 ```
 
-Recommended live demo mode:
+Recommended flagship demo mode:
 
 ```text
-ScreeningMode.TwoAgent
+ScreeningMode.ThreeAgent on v0.4
+```
+
+Fallback mode if live agent or RPC conditions are unstable:
+
+```text
+ScreeningMode.TwoAgent on v0.4
 ```
 
 Flow:
 
-1. Sponsor creates the round with `TwoAgent`.
-2. Sponsor funds `300 STT`.
-3. Several builders submit evidence bundles.
-4. Agents screen one `Complete`, one `NeedsReview`, and one `Incomplete`.
-5. Manual fallback remains available if agent infrastructure fails.
-6. Judge selects eligible finalists.
-7. Judge finalizes.
-8. Finalists claim.
-9. Sponsor refunds unallocated funds.
+1. Sponsor creates the round with `ThreeAgent`.
+2. Sponsor funds the exact prize pool.
+3. Builders submit public bundle evidence.
+4. Agents screen applications as `Complete`, `NeedsReview`, or `Incomplete`.
+5. Judges/sponsors select finalists.
+6. Selected finalists claim prizes.
+7. Manual fallback remains available only as recovery if agent infrastructure fails.
 
 ## Composition With v0.2.3
 
@@ -555,10 +559,10 @@ GRANT_PRIZE_RECIPIENT=
 ```
 
 `GRANT_SCREENING_MODE=0` means `TwoAgent`; `GRANT_SCREENING_MODE=1` means
-`ThreeAgent`. Use `ThreeAgent` only after Website Parse has a successful
-real-HTML proof. Until then, `TwoAgent` is the safe live fallback, not the
-long-term product ceiling. Manual screening should stay a fallback/recovery
-action in the demo script, not the default flow.
+`ThreeAgent`. The flagship demo is ThreeAgent on v0.4, which has full E2E proof.
+TwoAgent on v0.4 remains the fallback if live agent or RPC conditions are
+unstable. Manual screening should stay a fallback/recovery action in the demo
+script, not the default flow.
 
 `SPONSOR_PRIVATE_KEY` and `JUDGE_PRIVATE_KEY` may share one key for a simple
 demo. For a real round, use distinct `APPLICANT_ONE_PRIVATE_KEY` through
@@ -890,6 +894,70 @@ The June 3 v0.4 proof completed this path through finalist selection,
 finalization, and claim. If a future live demo has an agent/RPC issue, use the
 already-proven TwoAgent path as the fallback.
 
+### Final Dashboard Demo Targets
+
+The final dashboard proof can be replayed with high-level Makefile wrappers.
+They pin the v0.4 GrantRound/verifier, ThreeAgent mode, 3 STT prize, max three
+winners, and 0.81 STT screening deposit by default. Every target still accepts
+normal overrides such as `GRANT_ROUND_ID=<id>` or
+`GRANT_APPLICATION_IDS=<ids>`.
+
+Read-only setup:
+
+```bash
+make final-demo-grant-env
+make final-demo-grant-preflight
+make final-demo-grant-inspect
+```
+
+Round creation and funding:
+
+```bash
+make final-demo-grant-create-round
+export GRANT_ROUND_ID=<new round id>
+make final-demo-grant-fund-round GRANT_ROUND_ID=$GRANT_ROUND_ID
+```
+
+Four-applicant ThreeAgent submissions:
+
+```bash
+make final-demo-grant-submit-complete-one GRANT_ROUND_ID=$GRANT_ROUND_ID
+export COMPLETE_ONE_APP_ID=<app id>
+
+make final-demo-grant-submit-needs-review GRANT_ROUND_ID=$GRANT_ROUND_ID
+export NEEDS_REVIEW_APP_ID=<app id>
+
+make final-demo-grant-submit-complete-two GRANT_ROUND_ID=$GRANT_ROUND_ID
+export COMPLETE_TWO_APP_ID=<app id>
+
+make final-demo-grant-submit-incomplete GRANT_ROUND_ID=$GRANT_ROUND_ID
+export INCOMPLETE_APP_ID=<app id>
+```
+
+Direct cast request wrappers:
+
+```bash
+make final-demo-grant-request-complete-one GRANT_APPLICATION_ID=$COMPLETE_ONE_APP_ID
+make final-demo-grant-request-needs-review GRANT_APPLICATION_ID=$NEEDS_REVIEW_APP_ID
+make final-demo-grant-request-complete-two GRANT_APPLICATION_ID=$COMPLETE_TWO_APP_ID
+make final-demo-grant-request-incomplete GRANT_APPLICATION_ID=$INCOMPLETE_APP_ID
+```
+
+Selection, finalization, and claims:
+
+```bash
+export GRANT_APPLICATION_IDS=$COMPLETE_ONE_APP_ID,$COMPLETE_TWO_APP_ID,$NEEDS_REVIEW_APP_ID
+make final-demo-grant-select-finalists GRANT_ROUND_ID=$GRANT_ROUND_ID GRANT_APPLICATION_IDS=$GRANT_APPLICATION_IDS
+make final-demo-grant-finalize GRANT_ROUND_ID=$GRANT_ROUND_ID
+make final-demo-grant-claim-complete-one GRANT_APPLICATION_ID=$COMPLETE_ONE_APP_ID
+make final-demo-grant-claim-complete-two GRANT_APPLICATION_ID=$COMPLETE_TWO_APP_ID
+make final-demo-grant-claim-needs-review GRANT_APPLICATION_ID=$NEEDS_REVIEW_APP_ID
+```
+
+For the already-recorded proof, the defaults are round `8`, selected and
+claimed apps `14`, `15`, and `17`, with app `16` left Incomplete and
+unselected.
+
 ## Proving Website Parse
 
 For any new deployment, collect proof that all of the following are true before
@@ -908,8 +976,8 @@ round, applicant evidence, Website Parse callback, LLM bounded verdict,
 GrantRound `recordVerdict`, finalist selection by judge/sponsor, finalization,
 and claim.
 
-If these are not all true for a new deployment, keep the final live demo on
-`GRANT_SCREENING_MODE=0` as the safe Somnia-powered fallback.
+If these are not all true for a new deployment, use the proven TwoAgent v0.4
+path as the safe Somnia-powered fallback for that live session.
 
 Current status from the June 3 proof:
 
@@ -948,6 +1016,7 @@ Latest proof note:
 ```text
 docs/proofs/2026-06-03-grant-round-demo-scenarios.md
 docs/proofs/2026-06-03-grant-round-three-agent-proof.md
+docs/proofs/2026-06-03-final-demo-scenarios.md
 ```
 
 The first run proved the live TwoAgent lifecycle against public raw GitHub
@@ -959,6 +1028,16 @@ The second note records the fresh v0.4.0 ThreeAgent-capable deployment. It is
 deployed, bound, verified on Blockscout, and proven end to end with public raw
 GitHub `bundle-*.json` URLs. It also records the earlier failed `httpbin`
 attempt as a fail-closed operational caveat.
+
+The final demo note records the dashboard-ready v0.4 ThreeAgent campaign:
+round `8`, four applicants, 9 STT pool, three selected finalists, three
+claims, and one Incomplete application left unselected and unclaimed. Use this
+as the flagship GrantRound demo. TwoAgent on v0.4 remains the recommended
+fallback if live agent or RPC conditions are unstable.
+
+Dashboard/indexer caveat: Somnia explorer or dapp indexers can lag recent
+transactions. Direct tx hashes, contract reads, `make grant-demo-inspect`, and
+`cast call` are the source of truth when the UI has not refreshed yet.
 
 Required environment:
 
