@@ -270,6 +270,10 @@ check:
 	forge test
 	git diff --check
 
+build-real-evidence:
+	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL"
+	forge script script/demo/BuildRealEvidence.s.sol:BuildRealEvidence --rpc-url "$$SOMNIA_RPC_URL" -vvv
+
 env-check:
 	@missing=0; \
 	for var in DEPLOYER_PRIVATE_KEY SOMNIA_RPC_URL SOMNIA_CHAIN_ID SOMNIA_AGENT_PLATFORM SOMNIA_AGENT_ID SOMNIA_VERDICT_SELECTOR AGENT_SUBCOMMITTEE_SIZE AGENT_PRICE_PER_VALIDATOR; do \

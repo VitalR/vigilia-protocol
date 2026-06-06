@@ -412,6 +412,31 @@ Flow:
 6. Selected finalists claim prizes.
 7. Manual fallback remains available only as recovery if agent infrastructure fails.
 
+### Real Data E2E Sanity Evidence
+
+Use `demo/evidence/grants-real/` when proving that GrantRound screening can work
+from realistic public Vigilia artifacts rather than demo fixtures where facts
+are manually set to true. Generate it with:
+
+```bash
+make build-real-evidence
+```
+
+The generated bundle separates raw fields from validation-derived facts and
+includes a `websiteURI` for ThreeAgent mode. The Foundry builder validates:
+
+- GitHub repo URL format;
+- docs/proof URL format;
+- live GrantRound v0.4 address format;
+- `address.code.length != 0` for the deployed GrantRound contract over the
+  selected Somnia RPC.
+
+HTTP reachability is recorded as `unknown`, not `true`, because this repo is
+currently Foundry-native and the builder does not use FFI. Publish the generated
+JSON and HTML page to a public raw URL before requesting live ThreeAgent
+screening. The frontend should copy this conservative model: raw form fields are
+applicant claims, while positive facts must come only from validation.
+
 ## Composition With v0.2.3
 
 Do not reuse the deployed hardened v0.2.3 verifier for GrantRound.

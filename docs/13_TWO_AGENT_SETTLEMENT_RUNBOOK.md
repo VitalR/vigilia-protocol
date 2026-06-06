@@ -173,6 +173,32 @@ cast call "$VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER" "minimumRequestDepositForWo
 
 ## Demo Commands
 
+### Real Data E2E Sanity Evidence
+
+Use `demo/evidence/escrow-real/` when proving that the two-agent Escrow flow can
+consume realistic public Vigilia evidence rather than hand-authored fixture
+facts. Generate it with:
+
+```bash
+make build-real-evidence
+```
+
+The generated JSON separates raw applicant-style claims from validation-derived
+facts. The Foundry builder validates:
+
+- GitHub repo URL format;
+- docs/proof URL format;
+- live Escrow address format;
+- `address.code.length != 0` for the deployed Escrow contract over the selected
+  Somnia RPC.
+
+It intentionally records HTTP reachability as `unknown` because the
+Foundry-native script does not use FFI or an HTTP client. Publish the generated
+JSON and optional HTML page to a public raw URL before using them in a live
+Somnia agent request. Transaction success means the agent request was accepted;
+the final `Complete` verdict depends on the quality and availability of the
+public evidence.
+
 Create an immediate-claim task for a compact live demo:
 
 ```bash
