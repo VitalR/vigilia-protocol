@@ -177,14 +177,23 @@ cast call "$VIGILIA_MULTI_AGENT_SETTLEMENT_VERIFIER" "minimumRequestDepositForWo
 
 Use `demo/evidence/escrow-real/` when proving that the two-agent Escrow flow can
 consume realistic public Vigilia evidence rather than hand-authored fixture
-facts. Generate it with:
+facts.
+
+Generate conservative Foundry evidence with:
 
 ```bash
 make build-real-evidence
 ```
 
-The generated JSON separates raw applicant-style claims from validation-derived
-facts. The Foundry builder validates:
+Generate web-validated evidence with:
+
+```bash
+make build-web-validated-evidence
+```
+
+The generated JSON files separate raw applicant-style claims from
+validation-derived facts. The Foundry builder writes
+`evidence-real-conservative.json` and validates:
 
 - GitHub repo URL format;
 - docs/proof URL format;
@@ -193,11 +202,16 @@ facts. The Foundry builder validates:
   Somnia RPC.
 
 It intentionally records HTTP reachability as `unknown` because the
-Foundry-native script does not use FFI or an HTTP client. Publish the generated
-JSON and optional HTML page to a public raw URL before using them in a live
-Somnia agent request. Transaction success means the agent request was accepted;
-the final `Complete` verdict depends on the quality and availability of the
-public evidence.
+Foundry-native script does not use FFI or an HTTP client.
+
+The web helper under `app/evidence-tools/` writes
+`evidence-real-verified-complete.json`. It marks GitHub, README, docs, proof,
+website, and deployed-code facts true only after the matching public
+HTTP/GitHub/RPC check succeeds. Use this verified file for live agent smoke
+tests after it has been pushed to a public raw URL.
+
+Transaction success means the agent request was accepted; the final `Complete`
+verdict depends on the quality and availability of the public evidence.
 
 Create an immediate-claim task for a compact live demo:
 

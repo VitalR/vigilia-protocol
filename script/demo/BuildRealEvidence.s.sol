@@ -117,12 +117,14 @@ contract BuildRealEvidence is Script {
         });
 
         vm.createDir(_cfg.outDir, true);
-        vm.writeFile(string.concat(_cfg.outDir, "/evidence-real-complete.json"), _evidenceJSON(_cfg, validation));
+        string memory evidence = _evidenceJSON(_cfg, validation);
+        vm.writeFile(string.concat(_cfg.outDir, "/evidence-real-conservative.json"), evidence);
+        vm.writeFile(string.concat(_cfg.outDir, "/evidence-real-complete.json"), evidence);
         vm.writeFile(string.concat(_cfg.outDir, "/website-real-complete.html"), _websiteHTML(_cfg, validation));
         vm.writeFile(string.concat(_cfg.outDir, "/validation-notes.md"), _validationNotes(_cfg, validation));
         vm.writeFile(string.concat(_cfg.outDir, "/README.md"), _readme(_cfg.kind));
 
-        console2.log("wrote", string.concat(_cfg.outDir, "/evidence-real-complete.json"));
+        console2.log("wrote", string.concat(_cfg.outDir, "/evidence-real-conservative.json"));
         console2.log("deploymentHasCode", validation.deploymentHasCode);
     }
 
@@ -273,7 +275,9 @@ contract BuildRealEvidence is Script {
     function _validationNotes(EvidenceConfig memory _cfg, Validation memory _v) private pure returns (string memory) {
         return string.concat(
             "# Validation Notes\n\n",
-            "Positive facts in `evidence-real-complete.json` are generated only after Foundry validation checks.\n\n",
+            "`evidence-real-conservative.json` is generated only after Foundry validation checks. The legacy ",
+            "`evidence-real-complete.json` path is kept as a compatibility copy, but it is conservative and does not ",
+            "guarantee a Complete verdict.\n\n",
             "## Raw Inputs\n\n",
             "- repoURI: ",
             _cfg.repoURI,
@@ -326,7 +330,8 @@ contract BuildRealEvidence is Script {
             "Run:\n\n```bash\n",
             "forge script script/demo/BuildRealEvidence.s.sol:BuildRealEvidence --rpc-url \"$SOMNIA_RPC_URL\"\n",
             "```\n\n",
-            "The builder marks deployed code facts as `true` only after RPC bytecode validation. HTTP reachability remains `unknown` in this Foundry-native script.\n"
+            "The Foundry builder writes `evidence-real-conservative.json` and marks deployed code facts as `true` only after RPC bytecode validation. HTTP reachability remains `unknown` in this Foundry-native script.\n\n",
+            "For public HTTP/GitHub reachability checks, run `make build-web-validated-evidence` and use `evidence-real-verified-complete.json`.\n"
         );
     }
 

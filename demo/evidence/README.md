@@ -16,12 +16,21 @@ Those files contain a top-level `verdict`.
 GrantRound demos use `grants/facts-*.json`. Those files contain a top-level
 `facts` field for `JsonFactsToLlmVerdict`.
 
-The `*-real/` folders are different from deterministic fixtures. They are built
-with `make build-real-evidence` and only mark deployed-code facts as true after
-RPC bytecode checks. Foundry-native scripts do not perform HTTP requests without
-FFI, so repo/docs/website reachability is recorded as `unknown` unless a separate
-publisher/checker validates the public URL. Use these files as canonical
-frontend examples for conservative evidence generation.
+The `*-real/` folders are different from deterministic fixtures. They contain
+two real-data evidence classes:
+
+- `evidence-real-conservative.json` is built with `make build-real-evidence`.
+  It marks deployed-code facts as true only after RPC bytecode checks. Foundry
+  does not perform HTTP requests without FFI, so repo/docs/website reachability
+  is intentionally `unknown`, not true.
+- `evidence-real-verified-complete.json` is built with
+  `make build-web-validated-evidence`. It marks GitHub, README, docs, proof,
+  website, and deployed-code facts true only after the matching public
+  HTTP/GitHub/RPC check succeeds.
+
+The legacy `evidence-real-complete.json` path is a compatibility copy of the
+conservative file and should not be treated as a guarantee that agents will
+return Complete.
 
 For live Somnia JSON API tests, serve the selected JSON file from a public URL. Good options are a GitHub raw URL, a Vercel static file, or another public static host.
 

@@ -1,0 +1,30 @@
+{
+  "schema": "vigilia-real-evidence-v1",
+  "kind": "escrow",
+  "raw": {
+    "repoURI": "https://github.com/VitalR/vigilia-protocol",
+    "contractAddress": "0x1FA22E3a97dabB9a8C6de3a5B59eF6cCD5B2F4b9",
+    "explorerURI": "https://shannon-explorer.somnia.network/address/0x1FA22E3a97dabB9a8C6de3a5B59eF6cCD5B2F4b9",
+    "docsURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/docs/13_TWO_AGENT_SETTLEMENT_RUNBOOK.md",
+    "proofURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/docs/proofs/2026-06-01-two-agent-settlement-hardened-rpc-proof.md",
+    "dashboardURI": "",
+    "summary": "Real Vigilia Escrow evidence built from the public repository, deployed v0.2.3 Escrow contract, runbook, and proof docs."
+  },
+  "facts": "repo_url_valid=true; repo_exists=true; readme_exists=true; docs_url_valid=true; docs_reachable=true; proof_url_valid=true; proof_reachable=true; deployment_address_format_valid=true; deployment_has_code=true; website_url_valid=true; website_reachable=true; demo_url_valid=unknown; demo_url_reachable=unknown",
+  "websiteURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/escrow-real/website-real-complete.html",
+  "validation": {
+    "repoUrlValid": true,
+    "repoReachable": true,
+    "readmeReachable": true,
+    "docsUrlValid": true,
+    "docsReachable": true,
+    "proofUrlValid": true,
+    "proofReachable": true,
+    "deploymentAddressFormatValid": true,
+    "deploymentHasCode": true,
+    "demoUrlValid": "unknown",
+    "demoUrlReachable": "unknown",
+    "websiteUrlValid": true,
+    "websiteReachable": true
+  }
+}

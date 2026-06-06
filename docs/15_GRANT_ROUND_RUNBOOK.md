@@ -416,14 +416,23 @@ Flow:
 
 Use `demo/evidence/grants-real/` when proving that GrantRound screening can work
 from realistic public Vigilia artifacts rather than demo fixtures where facts
-are manually set to true. Generate it with:
+are manually set to true.
+
+Generate conservative Foundry evidence with:
 
 ```bash
 make build-real-evidence
 ```
 
-The generated bundle separates raw fields from validation-derived facts and
-includes a `websiteURI` for ThreeAgent mode. The Foundry builder validates:
+Generate web-validated evidence with:
+
+```bash
+make build-web-validated-evidence
+```
+
+The generated bundles separate raw fields from validation-derived facts and
+include a `websiteURI` for ThreeAgent mode. The Foundry builder writes
+`evidence-real-conservative.json` and validates:
 
 - GitHub repo URL format;
 - docs/proof URL format;
@@ -432,10 +441,15 @@ includes a `websiteURI` for ThreeAgent mode. The Foundry builder validates:
   selected Somnia RPC.
 
 HTTP reachability is recorded as `unknown`, not `true`, because this repo is
-currently Foundry-native and the builder does not use FFI. Publish the generated
-JSON and HTML page to a public raw URL before requesting live ThreeAgent
-screening. The frontend should copy this conservative model: raw form fields are
-applicant claims, while positive facts must come only from validation.
+currently Foundry-native and the builder does not use FFI.
+
+The web helper under `app/evidence-tools/` writes
+`evidence-real-verified-complete.json`. It marks GitHub, README, docs, proof,
+website, and deployed-code facts true only after the matching public
+HTTP/GitHub/RPC check succeeds. Use this verified file for live ThreeAgent
+screening after it has been pushed to a public raw URL. The frontend should copy
+this model: raw form fields are applicant claims, while positive facts must come
+only from validation.
 
 ## Composition With v0.2.3
 

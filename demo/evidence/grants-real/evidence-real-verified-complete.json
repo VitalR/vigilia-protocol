@@ -1,0 +1,30 @@
+{
+  "schema": "vigilia-real-evidence-v1",
+  "kind": "grant",
+  "raw": {
+    "repoURI": "https://github.com/VitalR/vigilia-protocol",
+    "contractAddress": "0x5aE1918Dcaa0A00a1d647e1c9946F7FF3fB61679",
+    "explorerURI": "https://shannon-explorer.somnia.network/address/0x5aE1918Dcaa0A00a1d647e1c9946F7FF3fB61679",
+    "docsURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/docs/15_GRANT_ROUND_RUNBOOK.md",
+    "proofURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/docs/proofs/2026-06-03-grant-round-three-agent-proof.md",
+    "dashboardURI": "",
+    "summary": "Real Vigilia GrantRound evidence built from the public repository, deployed v0.4 GrantRound contract, runbook, and proof docs."
+  },
+  "facts": "repo_url_valid=true; repo_exists=true; readme_exists=true; docs_url_valid=true; docs_reachable=true; proof_url_valid=true; proof_reachable=true; deployment_address_format_valid=true; deployment_has_code=true; website_url_valid=true; website_reachable=true; demo_url_valid=unknown; demo_url_reachable=unknown",
+  "websiteURI": "https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants-real/website-real-complete.html",
+  "validation": {
+    "repoUrlValid": true,
+    "repoReachable": true,
+    "readmeReachable": true,
+    "docsUrlValid": true,
+    "docsReachable": true,
+    "proofUrlValid": true,
+    "proofReachable": true,
+    "deploymentAddressFormatValid": true,
+    "deploymentHasCode": true,
+    "demoUrlValid": "unknown",
+    "demoUrlReachable": "unknown",
+    "websiteUrlValid": true,
+    "websiteReachable": true
+  }
+}

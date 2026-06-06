@@ -3,6 +3,7 @@ SHELL := /bin/bash
 -include .env
 .EXPORT_ALL_VARIABLES:
 
+NODE ?= node
 DEPLOYMENT_ARTIFACT ?= deployments/somnia-testnet-50312.json
 DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaSystem.s.sol:DeployVigiliaSystem
 MULTI_AGENT_DEPLOY_SCRIPT ?= script/deploy/DeployVigiliaMultiAgentVerifier.s.sol:DeployVigiliaMultiAgentVerifier
@@ -105,7 +106,7 @@ ESCROW_RETRY_FROM ?= 0x5a122Bb8Ade6EAfa9a6fB22a573C09f7E68Ac28a
 	final-demo-escrow-inspect-task final-demo-escrow-claim-task \
 	escrow-retry-decode escrow-retry-inspect-task escrow-retry-simulate-zero \
 	escrow-retry-simulate-with-deposit escrow-retry-diagnose escrow-retry-with-deposit \
-	require-env
+	require-env build-real-evidence build-web-validated-evidence
 
 help:
 	@echo "Vigilia Protocol commands"
@@ -116,6 +117,8 @@ help:
 	@echo "  make test                        Run Foundry tests"
 	@echo "  make coverage                    Run Foundry coverage"
 	@echo "  make check                       Run fmt check, build, tests, and git diff --check"
+	@echo "  make build-real-evidence         Build conservative Foundry evidence"
+	@echo "  make build-web-validated-evidence Build HTTP/RPC-validated real evidence"
 	@echo ""
 	@echo "Environment:"
 	@echo "  make env-check                   Check required deployment env vars"
@@ -273,6 +276,9 @@ check:
 build-real-evidence:
 	@$(MAKE) --no-print-directory require-env VARS="SOMNIA_RPC_URL"
 	forge script script/demo/BuildRealEvidence.s.sol:BuildRealEvidence --rpc-url "$$SOMNIA_RPC_URL" -vvv
+
+build-web-validated-evidence:
+	$(NODE) app/evidence-tools/scripts/build-real-evidence.mjs
 
 env-check:
 	@missing=0; \
