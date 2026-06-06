@@ -204,7 +204,7 @@ validation-derived facts. The Foundry builder writes
 It intentionally records HTTP reachability as `unknown` because the
 Foundry-native script does not use FFI or an HTTP client.
 
-The web helper under `app/evidence-tools/` writes
+The web helper under `app/evidence-tool/` writes
 `evidence-real-verified-complete.json`. It marks GitHub, README, docs, proof,
 website, and deployed-code facts true only after the matching public
 HTTP/GitHub/RPC check succeeds. Use this verified file for live agent smoke

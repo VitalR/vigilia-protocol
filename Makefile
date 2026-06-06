@@ -278,7 +278,7 @@ build-real-evidence:
 	forge script script/demo/BuildRealEvidence.s.sol:BuildRealEvidence --rpc-url "$$SOMNIA_RPC_URL" -vvv
 
 build-web-validated-evidence:
-	$(NODE) app/evidence-tools/scripts/build-real-evidence.mjs
+	npm --prefix app/evidence-tool run build
 
 env-check:
 	@missing=0; \

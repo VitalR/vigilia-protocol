@@ -15,7 +15,7 @@ make build-web-validated-evidence
 Or directly:
 
 ```bash
-npm --prefix app/evidence-tools run build
+npm --prefix app/evidence-tool run build
 ```
 
 The builder writes:

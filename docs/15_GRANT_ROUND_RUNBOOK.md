@@ -443,7 +443,7 @@ include a `websiteURI` for ThreeAgent mode. The Foundry builder writes
 HTTP reachability is recorded as `unknown`, not `true`, because this repo is
 currently Foundry-native and the builder does not use FFI.
 
-The web helper under `app/evidence-tools/` writes
+The web helper under `app/evidence-tool/` writes
 `evidence-real-verified-complete.json`. It marks GitHub, README, docs, proof,
 website, and deployed-code facts true only after the matching public
 HTTP/GitHub/RPC check succeeds. Use this verified file for live ThreeAgent

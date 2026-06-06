@@ -75,7 +75,7 @@ return Complete.
 ## Verified-Complete Result
 
 `make build-web-validated-evidence` uses
-`app/evidence-tools/scripts/build-real-evidence.mjs`.
+`app/evidence-tool/scripts/build-real-evidence.mjs`.
 
 The web validator checked:
 
