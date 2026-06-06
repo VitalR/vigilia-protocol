@@ -68,9 +68,8 @@ The builder does not mark HTTP reachability as true. Foundry scripts do not
 perform HTTP requests without FFI, so repo/docs/proof/website reachability
 remains `unknown` in `evidence-real-conservative.json`.
 
-The legacy `evidence-real-complete.json` path is a compatibility copy of this
-conservative output. It should not be treated as a guarantee that agents will
-return Complete.
+`evidence-real-conservative.json` is the canonical conservative output and
+should not be treated as a guarantee that agents will return Complete.
 
 ## Verified-Complete Result
 
@@ -115,28 +114,20 @@ unknown instead of fabricating positive facts.
 
 Escrow live E2E: not executed in this pass.
 
-GrantRound live E2E: not executed in this pass.
+GrantRound live E2E: completed.
 
-Reason: the new `evidence-real-verified-complete.json` files are generated in
-this working tree and must be pushed before the raw GitHub URLs above can be used
-by Somnia JSON API and Website Parse agents. No live transaction was sent against
-local evidence or self-attested fixture facts.
+The `evidence-real-verified-complete.json` files are public on GitHub raw URLs
+and are suitable for Somnia JSON API and Website Parse agents.
 
-## Required Next Live Run
+## Remaining Live Run
 
-After publishing the verified-complete files to the public raw URLs:
+Escrow can be run later with the public verified-complete file:
 
 1. Set `VIGILIA_EVIDENCE_JSON_URL` to the public Escrow
    `evidence-real-verified-complete.json` URL.
 2. Run the Escrow immediate-claim TwoAgent path with `0.36 STT` and record task
    ID, evidence URL, request ID, callback transactions, claim transaction, and
    final state.
-3. Set `GRANT_EVIDENCE_URI` to the public GrantRound
-   `evidence-real-verified-complete.json` URL.
-4. Create a fresh GrantRound v0.4 ThreeAgent round with `maxWinners=1`, submit
-   one application, request screening with `0.81 STT`, wait for JSON facts,
-   `websiteURI`, Website Parse, and LLM callbacks, then select, finalize, and
-   claim.
 
 ## Live Transaction Records
 
@@ -150,17 +141,67 @@ Escrow claim tx: not available.
 
 Escrow final state: not available.
 
-GrantRound round ID: not available.
+GrantRound round ID: `12`.
 
-GrantRound application ID: not available.
+GrantRound application ID: `23`.
 
-GrantRound request ID: not available.
+GrantRound request IDs:
 
-GrantRound callback txs: not available.
+- root / JSON facts request: `0x00000000000000000000000000000000000000000000000000000000004e7570`
+  (`5141872`)
+- JSON websiteURI request: `5141882`
+- Website Parse request: `5141883`
+- final LLM request: `5141971`
 
-GrantRound claim tx: not available.
+GrantRound lifecycle transactions:
 
-GrantRound final state: not available.
+- create round:
+  `0x2dbd2be17e113c5080ce14c0bad28dc6b657e540612effc44f937e948bddd45b`
+- fund round:
+  `0x0ef56a46ce999297362b48814edd97b549aeff6a0e89c2554a7dea670fdc7859`
+- excluded fixture application `22` submission:
+  `0xc9cea78e95bda66a6ce0941ae4a362aba1e3eecba8abbef71ab5db60215d846f`
+- real-data application `23` submission:
+  `0x1300a61357d1a851c57358f6ddb4e8e75717cb26789a751179efc19cf8ff61f7`
+- ThreeAgent screening request:
+  `0xb7845f3292a72534f31e79c50fcbd5e84ea7bc8400598234da31fbbc9b9210ca`
+- select finalist:
+  `0xb9565bd735c743ea671ffd92fd5512a20af9930150db1ef95715a3e40f59f443`
+- finalize round:
+  `0xbe2f4978d42af79a4b7a3bf8a029e74ac81464f2df074965288ce1aab598f035`
+- claim prize:
+  `0x885064219c4dbda66b01bfc95573d907deb853a4b24ae2147915c6ad906c19a4`
+
+GrantRound callback transactions:
+
+- JSON facts callback and JSON websiteURI request:
+  `0x223b0679d798eac89bfa8f1b5ed030d3f8a82fa76f7887c593888c38ef700ae0`
+- JSON websiteURI callback and Website Parse request:
+  `0x4ce80b3b797ea74659128a59ae9b4e1974e8d618691f88b31199b9eacc7a3a1f`
+- Website Parse callback and LLM request:
+  `0xc7b20acc048a47c44a7262f932baf9cceccd2111f300468a76f5948f746d7704`
+- LLM callback, `MultiAgentVerificationSucceeded`, and
+  `ApplicationVerdictRecorded`:
+  `0x82aad2c68c0fd92c20d290a3a074aef0271d7e6fd288d045c54e80f259072a90`
+
+GrantRound final state:
+
+- round state: `Finalized`
+- round screening mode: `ThreeAgent`
+- round prize amount: `0.1 STT`
+- round max winners: `1`
+- application evidence URI:
+  `https://raw.githubusercontent.com/VitalR/vigilia-protocol/main/demo/evidence/grants-real/evidence-real-verified-complete.json`
+- application verdict: `Complete`
+- application status: `Claimed`
+- application selected: `true`
+- application claimed: `true`
+- application notes URI: `somnia-agent-request:5141971`
+- claim succeeded: yes
+
+Operational note: application `22` was accidentally submitted through a wrapper
+target that defaulted to the old fixture bundle. It was not screened, selected,
+or claimed. The real-data proof application is application `23`.
 
 ## Limitations
 
