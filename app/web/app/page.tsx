@@ -88,7 +88,7 @@ export default function LandingPage() {
 
         <p className="mb-4 max-w-xl text-lg leading-relaxed text-muted">
           Submit evidence on-chain. Agents screen it against requirements.
-          A bounded verdict drives escrow settlement — by policy, not manual review.
+          A bounded verdict drives settlement policy, while ambiguous cases remain reviewable.
         </p>
         <p className="mb-6 max-w-lg text-sm text-subtle">
           Agents screen evidence. Judges and sponsors select finalists. Contracts enforce payouts.
@@ -210,7 +210,7 @@ export default function LandingPage() {
               <div className="mb-6 space-y-2">
                 {[
                   { role: "Client", action: "Define requirements, lock payment in escrow" },
-                  { role: "Contractor", action: "Submit evidence URL, claim on Complete verdict" },
+                  { role: "Contractor", action: "Submit evidence URL, claim when policy allows after Complete." },
                   { role: "Resolver", action: "Arbitrate disputes if verdict is contested" },
                 ].map((r) => (
                   <div key={r.role} className="flex items-start gap-2.5 text-xs">

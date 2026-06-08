@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { dirname, resolve } from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "../../..");
+const execFileAsync = promisify(execFile);
 
 const DEFAULTS = {
   repoURI: "https://github.com/VitalR/vigilia-protocol",
@@ -232,7 +235,7 @@ async function httpStatusOK(url) {
     });
     return response.status >= 200 && response.status < 300;
   } catch {
-    return "unknown";
+    return httpStatusOKWithCurl(url);
   }
 }
 
@@ -255,6 +258,47 @@ async function rpcHasCode(rpcURLValue, address) {
 
     if (!response.ok) return "unknown";
     const json = await response.json();
+    if (typeof json.result !== "string") return "unknown";
+    return json.result !== "0x";
+  } catch {
+    return rpcHasCodeWithCurl(rpcURLValue, address);
+  }
+}
+
+async function httpStatusOKWithCurl(url) {
+  try {
+    const { stdout } = await execFileAsync("curl", [
+      "-L",
+      "-sS",
+      "-o",
+      "/dev/null",
+      "-w",
+      "%{http_code}",
+      url
+    ]);
+    const status = Number(stdout.trim());
+    return status >= 200 && status < 300;
+  } catch {
+    return "unknown";
+  }
+}
+
+async function rpcHasCodeWithCurl(rpcURLValue, address) {
+  try {
+    const { stdout } = await execFileAsync("curl", [
+      "-sS",
+      "-H",
+      "Content-Type: application/json",
+      "-d",
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_getCode",
+        params: [address, "latest"]
+      }),
+      rpcURLValue
+    ]);
+    const json = JSON.parse(stdout);
     if (typeof json.result !== "string") return "unknown";
     return json.result !== "0x";
   } catch {
