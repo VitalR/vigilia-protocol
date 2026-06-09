@@ -3,6 +3,7 @@
 import { ArrowRight, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
+import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
 import { StatusPill } from "@/components/status-pill";
 import { useMilestones } from "@/lib/hooks";
@@ -12,7 +13,8 @@ import { formatSTT, truncateAddress, parseRequirementsMeta } from "@/lib/utils";
 export default function MilestonesPage() {
   const [page, setPage] = useState(0);
   const { tasks, totalTasks, totalPages, isLoading } = useMilestones(page);
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
+  const { openConnectModal } = useConnectModal();
   const { role } = useRole();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -42,13 +44,24 @@ export default function MilestonesPage() {
             </p>
           )}
         </div>
-        <Link
-          href="/milestones/create"
-          className="flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white transition-colors duration-100 hover:bg-accent-hover"
-        >
-          <Plus size={15} />
-          New Milestone
-        </Link>
+        {mounted && !isConnected ? (
+          <button
+            type="button"
+            onClick={openConnectModal}
+            className="flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white transition-colors duration-100 hover:bg-accent-hover"
+          >
+            <Plus size={15} />
+            Connect Wallet to Create Milestone
+          </button>
+        ) : (
+          <Link
+            href="/milestones/create"
+            className="flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white transition-colors duration-100 hover:bg-accent-hover"
+          >
+            <Plus size={15} />
+            New Milestone
+          </Link>
+        )}
       </div>
 
       {isLoading && (
@@ -73,12 +86,22 @@ export default function MilestonesPage() {
               <p className="mb-6 text-sm text-muted">
                 Create the first agent-verified milestone on Somnia
               </p>
-              <Link
-                href="/milestones/create"
-                className="flex h-9 items-center gap-2 rounded-lg bg-green px-4 text-sm font-semibold text-bg"
-              >
-                <Plus size={15} /> Create Milestone
-              </Link>
+              {!isConnected ? (
+                <button
+                  type="button"
+                  onClick={openConnectModal}
+                  className="flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white transition-colors duration-100 hover:bg-accent-hover"
+                >
+                  <Plus size={15} /> Connect Wallet to Create Milestone
+                </button>
+              ) : (
+                <Link
+                  href="/milestones/create"
+                  className="flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white transition-colors duration-100 hover:bg-accent-hover"
+                >
+                  <Plus size={15} /> Create Milestone
+                </Link>
+              )}
             </>
           )}
         </div>

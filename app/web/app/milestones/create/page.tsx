@@ -145,14 +145,16 @@ export default function CreateMilestonePage() {
 
   if (!isConnected) {
     return (
-      <div className="flex h-96 items-center justify-center text-muted">
-        Connect wallet to create a milestone
+      <div className="mx-auto flex h-96 max-w-3xl items-center justify-center px-4">
+        <div className="rounded-lg border border-border bg-surface px-6 py-5 text-center text-sm text-muted">
+          Connect wallet to create a milestone.
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-10">
+    <div className="mx-auto max-w-3xl px-4 py-10">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-text">Create Milestone</h1>
         <p className="mt-1 text-sm text-muted">

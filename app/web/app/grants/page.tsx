@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
+import { useConnectModal } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -58,7 +59,7 @@ function RoundStatePill({ state, applicationDeadline }: { state: RoundState; app
 // ─── Create Round modal ───────────────────────────────────────────────────────
 
 function CreateRoundModal({ onSuccess, onClose }: { onSuccess: () => void; onClose: () => void }) {
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
 
   // Requirements
   const [title, setTitle] = useState("");
@@ -112,7 +113,7 @@ function CreateRoundModal({ onSuccess, onClose }: { onSuccess: () => void; onClo
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim() || !prizeSTT || !appDeadline || !reviewDeadline || selectedCriteria.length === 0) return;
+    if (!isConnected || !title.trim() || !prizeSTT || !appDeadline || !reviewDeadline || selectedCriteria.length === 0) return;
 
     const judge = ((judgeAddress.trim() || address) ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
     const prize = parseEther(prizeSTT);
@@ -145,7 +146,8 @@ function CreateRoundModal({ onSuccess, onClose }: { onSuccess: () => void; onClo
     ? (Number(prizeSTT) * Number(maxWinners)).toFixed(2).replace(/\.?0+$/, "")
     : null;
 
-  const canCreate = title.trim() && prizeSTT && appDeadline && reviewDeadline && selectedCriteria.length > 0;
+  const formComplete = title.trim() && prizeSTT && appDeadline && reviewDeadline && selectedCriteria.length > 0;
+  const canCreate = isConnected && formComplete;
 
   return createPortal(
     <div
@@ -153,7 +155,7 @@ function CreateRoundModal({ onSuccess, onClose }: { onSuccess: () => void; onClo
       onClick={(e) => { if (e.target === e.currentTarget && !confirming && !isPending) onClose(); }}
     >
       <div className="absolute inset-0 bg-black/60" />
-      <div className="relative flex max-h-[90vh] w-full max-w-xl flex-col rounded-lg border border-border bg-surface shadow-xl">
+      <div className="relative flex max-h-[90vh] w-full max-w-3xl flex-col rounded-lg border border-border bg-surface shadow-xl">
         {/* Sticky header */}
         <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-sm font-semibold text-text">Create Grant</h2>
@@ -419,7 +421,12 @@ function CreateRoundModal({ onSuccess, onClose }: { onSuccess: () => void; onClo
 
           {/* Sticky footer */}
           <div className="sticky bottom-0 border-t border-border bg-surface px-5 py-4 space-y-2">
-            {!canCreate && (
+            {!isConnected && (
+              <p className="text-[11px] text-muted">
+                Connect wallet to create a grant.
+              </p>
+            )}
+            {!formComplete && (
               <ul className="space-y-0.5 text-[11px] text-muted">
                 {!title.trim() && <li>· Grant title is required</li>}
                 {!prizeSTT && <li>· Prize per winner is required</li>}
@@ -454,7 +461,8 @@ export default function GrantsPage() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const { address } = useAccount();
+  const { isConnected } = useAccount();
+  const { openConnectModal } = useConnectModal();
   const { rounds, totalRounds, totalPages, isLoading, isDeployed, refetch } = useGrantRounds(page);
   const refresh = useCallback(() => refetch(), [refetch]);
 
@@ -471,14 +479,26 @@ export default function GrantsPage() {
             </p>
           )}
         </div>
-        {mounted && isDeployed && !!address && (
-          <button
-            onClick={() => setShowCreate(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-muted transition-colors hover:border-accent/40 hover:text-text"
-          >
-            <Plus size={14} />
-            Create Grant
-          </button>
+        {mounted && isDeployed && (
+          isConnected ? (
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white transition-colors duration-100 hover:bg-accent-hover"
+            >
+              <Plus size={15} />
+              Create Grant
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={openConnectModal}
+              className="flex h-9 items-center gap-2 rounded-md bg-accent px-4 text-sm font-medium text-white transition-colors duration-100 hover:bg-accent-hover"
+            >
+              <Plus size={15} />
+              Connect Wallet to Create Grant
+            </button>
+          )
         )}
       </div>
 

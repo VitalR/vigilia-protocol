@@ -11,6 +11,7 @@ import {
   ApplicationStatus,
   ScreeningMode,
   TASK_STATE_LABEL,
+  ROUND_STATE_LABEL,
 } from "@/lib/contracts";
 import { parseRequirementsMeta, cn } from "@/lib/utils";
 
@@ -240,23 +241,61 @@ function PipelineArrow() {
   );
 }
 
+function taskStatusClass(_state: TaskState) {
+  if (_state === TaskState.Claimed || _state === TaskState.VerifiedComplete || _state === TaskState.Approved) {
+    return "border-green/30 bg-green/10 text-green";
+  }
+  if (_state === TaskState.NeedsReview || _state === TaskState.Submitted) {
+    return "border-yellow/30 bg-yellow/10 text-yellow";
+  }
+  if (_state === TaskState.Incomplete || _state === TaskState.VerificationFailed) {
+    return "border-red/30 bg-red/10 text-red";
+  }
+  return "border-border bg-surface-2 text-muted";
+}
+
+function roundStatusLabel(_round: { state: RoundState; applicationDeadline: number }) {
+  const now = Math.floor(Date.now() / 1000);
+  if (_round.state === RoundState.Open && now > _round.applicationDeadline) return "Ended";
+  return ROUND_STATE_LABEL[_round.state] ?? String(_round.state);
+}
+
+function roundStatusClass(_round: { state: RoundState; applicationDeadline: number }) {
+  const now = Math.floor(Date.now() / 1000);
+  if (_round.state === RoundState.Open && now <= _round.applicationDeadline) {
+    return "border-green/30 bg-green/10 text-green";
+  }
+  if (_round.state === RoundState.Finalized) {
+    return "border-blue/30 bg-blue/10 text-blue";
+  }
+  if (_round.state === RoundState.Review) {
+    return "border-yellow/30 bg-yellow/10 text-yellow";
+  }
+  return "border-border bg-surface-2 text-muted";
+}
+
+const RECENT_GRANT_ROUND_LIMIT = 3;
+const RECENT_MILESTONE_LIMIT = 3;
+const RECENT_VERIFICATION_LIMIT = 10;
+
 // ─── Main dashboard ───────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const stats = useDashboardStats();
   const { isLoading } = stats;
 
-  const now = Math.floor(Date.now() / 1000);
-
-  // Active grants (Open and not expired, or just Open)
   const activeGrants = stats.rounds.filter(
     ({ round }) => round.state === RoundState.Open || round.state === RoundState.Created
   );
-
-  // Active milestones (Funded or Submitted)
   const activeMilestones = stats.tasks.filter(({ task }) =>
     task.state === TaskState.Funded || task.state === TaskState.Submitted
   );
+  const recentGrantRounds = [...stats.rounds]
+    .sort((a, b) => Number(b.id - a.id))
+    .slice(0, RECENT_GRANT_ROUND_LIMIT);
+  const recentMilestones = [...stats.tasks]
+    .sort((a, b) => Number(b.id - a.id))
+    .slice(0, RECENT_MILESTONE_LIMIT);
 
   // Recent verifications (tasks/apps that recently got a verdict)
   type VerificationEntry = {
@@ -319,7 +358,7 @@ export default function DashboardPage() {
         ) as VerificationEntry["verdict"],
         title: `Grant #${application.roundId} · App #${id}`,
       })),
-  ].slice(0, 10);
+  ].slice(0, RECENT_VERIFICATION_LIMIT);
 
   const verdictStyle: Record<VerificationEntry["verdict"], { label: string; cls: string }> = {
     complete:     { label: "Complete",     cls: "bg-green/10 text-green border-green/30" },
@@ -527,13 +566,13 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Right column: Active Grants + Open Milestones */}
+        {/* Right column: Recent Grants + Recent Milestones */}
         <div className="space-y-6">
 
-          {/* Active Grants */}
+          {/* Recent Grants */}
           <div className="rounded-xl border border-border bg-surface overflow-hidden">
             <div className="flex items-center justify-between border-b border-border px-5 py-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted">Active Grant Rounds</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted">Recent Grant Rounds</h3>
               <Link href="/grants" className="text-xs text-muted hover:text-text transition-colors">
                 View all →
               </Link>
@@ -542,11 +581,11 @@ export default function DashboardPage() {
               <div className="space-y-2 p-4">
                 {[...Array(2)].map((_, i) => <Skeleton key={i} className="h-12" />)}
               </div>
-            ) : activeGrants.length === 0 ? (
-              <div className="px-5 py-6 text-center text-xs text-subtle">No active grants</div>
+            ) : recentGrantRounds.length === 0 ? (
+              <div className="px-5 py-6 text-center text-xs text-subtle">No grant rounds yet</div>
             ) : (
               <div className="divide-y divide-border/50">
-                {activeGrants.slice(0, 4).map(({ id, round }) => {
+                {recentGrantRounds.map(({ id, round }) => {
                   const meta = parseRequirementsMeta(round.requirementsURI);
                   const pool = round.prizeAmount * round.maxWinners;
                   return (
@@ -561,6 +600,14 @@ export default function DashboardPage() {
                           <span className="font-mono">{fmtSTT(pool)}</span>
                           <span>·</span>
                           <span>{round.applicationsCount.toString()} apps</span>
+                          <span
+                            className={cn(
+                              "rounded border px-1.5 py-0.5 text-[10px] font-semibold",
+                              roundStatusClass(round)
+                            )}
+                          >
+                            {roundStatusLabel(round)}
+                          </span>
                         </div>
                       </div>
                       <ArrowRight size={12} className="shrink-0 text-muted ml-3" />
@@ -571,10 +618,10 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Open Milestones */}
+          {/* Recent Milestones */}
           <div className="rounded-xl border border-border bg-surface overflow-hidden">
             <div className="flex items-center justify-between border-b border-border px-5 py-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted">Open Milestones</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted">Recent Milestones</h3>
               <Link href="/milestones" className="text-xs text-muted hover:text-text transition-colors">
                 View all →
               </Link>
@@ -583,11 +630,11 @@ export default function DashboardPage() {
               <div className="space-y-2 p-4">
                 {[...Array(2)].map((_, i) => <Skeleton key={i} className="h-12" />)}
               </div>
-            ) : activeMilestones.length === 0 ? (
-              <div className="px-5 py-6 text-center text-xs text-subtle">No open milestones</div>
+            ) : recentMilestones.length === 0 ? (
+              <div className="px-5 py-6 text-center text-xs text-subtle">No milestones yet</div>
             ) : (
               <div className="divide-y divide-border/50">
-                {activeMilestones.slice(0, 4).map(({ id, task }) => {
+                {recentMilestones.map(({ id, task }) => {
                   const meta = parseRequirementsMeta(task.requirementsURI);
                   return (
                     <Link
@@ -601,7 +648,8 @@ export default function DashboardPage() {
                           <span className="font-mono">{fmtSTT(task.amount)}</span>
                           <span>·</span>
                           <span className={cn(
-                            task.state === TaskState.Submitted ? "text-yellow" : "text-muted"
+                            "rounded border px-1.5 py-0.5 text-[10px] font-semibold",
+                            taskStatusClass(task.state)
                           )}>
                             {TASK_STATE_LABEL[task.state]}
                           </span>
