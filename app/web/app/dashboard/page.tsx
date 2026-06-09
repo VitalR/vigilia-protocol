@@ -284,11 +284,18 @@ export default function DashboardPage() {
   const stats = useDashboardStats();
   const { isLoading } = stats;
 
-  const activeGrants = stats.rounds.filter(
-    ({ round }) => round.state === RoundState.Open || round.state === RoundState.Created
+  const openGrantRounds = stats.rounds.filter(
+    ({ round }) => round.state === RoundState.Created || round.state === RoundState.Open || round.state === RoundState.Review
   );
-  const activeMilestones = stats.tasks.filter(({ task }) =>
-    task.state === TaskState.Funded || task.state === TaskState.Submitted
+  const openMilestones = stats.tasks.filter(({ task }) =>
+    task.state === TaskState.Created ||
+    task.state === TaskState.Funded ||
+    task.state === TaskState.Submitted ||
+    task.state === TaskState.VerifiedComplete ||
+    task.state === TaskState.NeedsReview ||
+    task.state === TaskState.Incomplete ||
+    task.state === TaskState.Approved ||
+    task.state === TaskState.Disputed
   );
   const recentGrantRounds = [...stats.rounds]
     .sort((a, b) => Number(b.id - a.id))
@@ -388,19 +395,19 @@ export default function DashboardPage() {
         <KPICard
           label="Milestone Contracts"
           value={stats.totalTasks.toString()}
-          sub={`${activeMilestones.length} active`}
+          sub={`${openMilestones.length} open milestones`}
           loading={isLoading}
         />
         <KPICard
           label="Grant Rounds"
           value={stats.totalRounds.toString()}
-          sub={`${activeGrants.length} accepting apps`}
+          sub={`${openGrantRounds.length} open rounds`}
           loading={isLoading}
         />
         <KPICard
-          label="STT Locked"
-          value={isLoading ? "—" : fmtSTT(stats.totalLocked)}
-          sub={isLoading ? undefined : `${fmtSTT(stats.totalPaid)} distributed`}
+          label="Protocol Volume"
+          value={isLoading ? "—" : fmtSTT(stats.totalPaid)}
+          sub={isLoading ? undefined : `${fmtSTT(stats.totalLocked)} currently locked`}
           loading={isLoading}
           accent="text-accent"
         />
