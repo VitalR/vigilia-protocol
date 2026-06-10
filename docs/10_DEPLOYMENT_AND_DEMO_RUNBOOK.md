@@ -1,5 +1,7 @@
 # Deployment And Demo Runbook
 
+Historical note: this runbook documents the early v0.1 JSON API smoke deployment. For the final hackathon submission stack, use [`DEPLOYMENTS.md`](./DEPLOYMENTS.md), [`13_TWO_AGENT_SETTLEMENT_RUNBOOK.md`](./13_TWO_AGENT_SETTLEMENT_RUNBOOK.md), [`15_GRANT_ROUND_RUNBOOK.md`](./15_GRANT_ROUND_RUNBOOK.md), and [`proofs/2026-06-08-final-demo-data.md`](./proofs/2026-06-08-final-demo-data.md).
+
 This runbook covers the first narrow Somnia testnet deployment for Vigilia Protocol.
 
 This is the JSON API smoke deployment:

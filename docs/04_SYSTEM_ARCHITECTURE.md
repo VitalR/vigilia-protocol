@@ -1,5 +1,88 @@
 # System Architecture
 
+## Final Submission Status
+
+This document contains both the original target architecture and the current hackathon implementation. The live Somnia testnet MVP is intentionally narrower:
+
+- `VigiliaEscrow` handles fixed-work milestone settlement.
+- `VigiliaGrantRound` handles grant/bounty/hackathon rounds.
+- `VigiliaMultiAgentVerifier` coordinates Somnia Agent requests and bounded callbacks.
+- The dashboard reads deployed contract state and events.
+- Data Streams/reputation records remain an ecosystem path, not a fund-safety dependency.
+
+The live architecture keeps the most important trust boundary: agents screen evidence and record bounded verdict metadata; contracts enforce payout, claim, refund, and winner-cap rules.
+
+## Current Live System
+
+```mermaid
+flowchart LR
+  U[Client / Sponsor / Builder] --> C[Escrow or GrantRound]
+  U --> E[Public Evidence URL]
+  C --> V[VigiliaMultiAgentVerifier]
+  V --> J[JSON API Agent]
+  V --> W[Website Parse Agent]
+  V --> L[LLM Inference Agent]
+  J --> V
+  W --> V
+  L --> V
+  V --> R[Bounded verdict callback]
+  R --> C
+  C --> P[Claim / review / resubmit / refund]
+  C --> D[Dashboard + proof docs]
+
+  classDef trust fill:#111827,stroke:#5865f2,color:#fff;
+  class C,V trust;
+```
+
+### Milestone Escrow Flow
+
+```mermaid
+flowchart LR
+  A[Create task] --> B[Fund escrow]
+  B --> C[Submit evidence]
+  C --> D[JSON facts]
+  D --> E[LLM bounded verdict]
+  E --> F{Contract policy}
+  F -->|Complete| G[Claim path]
+  F -->|NeedsReview| H[Client review]
+  F -->|Incomplete / failure| I[Retry or resubmit]
+```
+
+### GrantRound Flow
+
+```mermaid
+flowchart LR
+  A[Create round] --> B[Fund prize pool]
+  B --> C[Applications]
+  C --> D[TwoAgent or ThreeAgent screening]
+  D --> E[Screening status]
+  E --> F[Judge / sponsor finalist selection]
+  F --> G[Finalize round]
+  G --> H[Finalist prize claims]
+  G --> I[Unallocated refund]
+```
+
+### Agent Pipeline
+
+```mermaid
+flowchart LR
+  A[Public JSON evidence] --> B[JSON API Agent]
+  A --> C[Website URI]
+  C --> D[Website Parse Agent]
+  B --> E[LLM Inference Agent]
+  D --> E
+  E --> F[Complete / NeedsReview / Incomplete]
+  F --> G[Verifier records normalized result]
+```
+
+Trust boundaries:
+
+1. Public evidence is untrusted input.
+2. Agents are bounded screeners.
+3. The verifier records normalized results and rejects unknown verdicts.
+4. Contracts enforce state machines and accounting.
+5. Human review remains available for ambiguous cases.
+
 ## High-Level Architecture
 
 ```text

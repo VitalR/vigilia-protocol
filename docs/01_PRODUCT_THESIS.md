@@ -6,7 +6,9 @@
 
 ## Short Description
 
-Vigilia lets programs and clients fund work with autonomous milestone escrow. Builders submit public evidence such as GitHub repositories, deployment addresses, docs, test logs, demos, and videos. Somnia Agents verify the evidence through API requests, website parsing, and deterministic LLM classification. The escrow contract then marks the task as complete, needs review, or incomplete. Somnia Data Streams publish portable proof-of-work records that can power reputation, grant dashboards, builder profiles, and AI-agent work histories.
+Vigilia lets programs and clients fund work with autonomous milestone escrow. Builders submit public evidence such as GitHub repositories, deployment addresses, docs, test logs, demos, and videos. Somnia Agents verify the evidence through API requests, website parsing, and deterministic LLM classification. The escrow contract then marks the task as complete, needs review, or incomplete.
+
+Current MVP proof records are exposed through on-chain events, deployment artifacts, dashboard reads, and proof docs. Somnia Data Streams are the intended next step for portable proof-of-work records that can power reputation, grant dashboards, builder profiles, and AI-agent work histories.
 
 ## Updated Thesis
 

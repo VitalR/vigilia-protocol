@@ -1,5 +1,37 @@
 # Agent and Data Flows
 
+## Final Submission Status
+
+The live MVP proves two agent-backed flows:
+
+1. **Milestone Escrow TwoAgent**
+
+   ```text
+   JSON API facts -> LLM Inference bounded verdict -> VigiliaEscrow policy
+   ```
+
+2. **GrantRound ThreeAgent**
+
+   ```text
+   JSON API facts -> Website Parse real HTML -> LLM Inference bounded verdict -> VigiliaGrantRound screening status
+   ```
+
+Agents never choose winners and never move funds directly. Their output is normalized into bounded verdicts. Escrow clients, grant judges, sponsors, and deterministic contract rules remain responsible for settlement decisions.
+
+## Current Agent Pipeline
+
+```mermaid
+flowchart LR
+  E[Public evidence URL] --> J[JSON API Agent]
+  E --> H[websiteURI / project page]
+  H --> W[Website Parse Agent]
+  J --> L[LLM Inference Agent]
+  W --> L
+  L --> V[Complete / NeedsReview / Incomplete]
+  V --> C[Verifier callback]
+  C --> S[Escrow or GrantRound state]
+```
+
 ## Core Verification Flow
 
 ```text
@@ -153,6 +185,8 @@ Fallback if Reactivity is unavailable:
 ## Data Streams Strategy
 
 Data Streams are not just logs. They are Vigilia's public work memory.
+
+Current MVP status: live proof records are available through on-chain events, direct RPC reads, deployment artifacts, and proof docs. Data Streams are the intended next step for portable work/reputation feeds and should be treated as additive rather than required for fund safety.
 
 Use them for:
 

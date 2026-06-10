@@ -1,5 +1,11 @@
 # Vigilia GrantRound Runbook
 
+Final submission references:
+
+- Canonical deployments: [`DEPLOYMENTS.md`](./DEPLOYMENTS.md)
+- Final live proof: [`proofs/2026-06-08-final-demo-data.md`](./proofs/2026-06-08-final-demo-data.md)
+- Live dashboard: https://vigilia-protocol.vercel.app/dashboard
+
 ## Purpose
 
 `VigiliaGrantRound` helps sponsors run transparent grant and bounty rounds.

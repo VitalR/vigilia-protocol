@@ -2,6 +2,8 @@
 
 This directory stores public deployment artifacts for Vigilia Protocol.
 
+For the final hackathon submission deployment table, start with [`docs/DEPLOYMENTS.md`](../docs/DEPLOYMENTS.md). This directory remains the artifact archive, including historical deployment lines that should not be overwritten.
+
 Deployment JSON files are safe to commit. They contain deployed contract addresses, public network metadata, and non-secret deployment configuration so reviewers and demo operators can reproduce which contracts were deployed and how they were configured.
 
 `deployments/somnia-testnet-50312.json` currently records `vigilia-json-api-smoke` `v0.1.0`, the first JSON API Request

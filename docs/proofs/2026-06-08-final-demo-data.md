@@ -424,31 +424,180 @@ Applications:
 - Final verdict: `Complete`
 - Final state: `Claimed`
 
+## Final Protocol Volume Scenarios
+
+Date: `2026-06-09`
+
+This final pass clarified dashboard KPI labels and added one last small set of polished top-of-list live rows. No dashboard statistics were hardcoded; values below come from direct contract reads.
+
+Dashboard metric label changes:
+
+- `Milestone Contracts` now uses subtext `N open milestones`.
+- `Grant Rounds` now uses subtext `N open rounds`.
+- `STT Locked` was renamed to `Protocol Volume`.
+- `Protocol Volume` now shows the current distributed/settled total as the main value and the current locked/pool total as subtext.
+
+### Grant A - Somnia Agent Tooling Grant Phase 2
+
+- Round ID: `19`
+- Prize: `2.5 STT`
+- Max winners: `2`
+- Total pool: `5 STT`
+- Screening mode: `ThreeAgent`
+- Create tx: `0x21adb1828427e22bba5b32a8f8dfbf10f9c5153f0c5d53f45fe91a9db26a6751`
+- Fund tx: `0x937ccfb2d5516d8d8690235f8174632d767d21bcb4679f6dc34e4712feffd66e`
+- Select finalists tx: `0x674af66fadda0cd75454e0b4cfbc9ce2a810f38c0cc48e76ff6784b9d3b99b65`
+- Finalize tx: `0x585128ddbcf53bd43e6ae2b40358cef5dc0989fa3568ac513139cc04e50e4c0c`
+- Final round state: `Finalized`
+- Selected count: `2`
+- Claimed count: `2`
+- Total claimed: `5 STT`
+
+Applications:
+
+- Application `37`
+  - Submit tx: `0xb9e8253fd0e46fd24f3cf9704c1cf09aa000b143fd8d865ef127816058e4e67b`
+  - Request screening tx: `0x4df56f523896cb36cbedc8cd28edf2265ee28bc05e730e559765603fb54c542a`
+  - Root request ID: `0x000000000000000000000000000000000000000000000000000000000059f5ba`
+  - Verdict callback tx: `0x73a707932bcad76a4ac8d8d7d39302d6622d670ada560102c1b9589d365f7fa7`
+  - Final LLM notes: `somnia-agent-request:5895619`
+  - Verdict: `Complete`
+  - Final status: `Claimed`
+  - Claim tx: `0x0f7ee0d58097f5d5ab8df469e6aef12d660c07de899aedb9e1783e84bb51265f`
+- Application `38`
+  - Submit tx: `0x068745cc6c44a3ef1d3c975ae6580c102852818ad55f349de2963f84772f0a4d`
+  - Request screening tx: `0x7b212315d0da82a7ff51e0ea35fdcbb844c7bcb41b5fca63de3ea6889525515f`
+  - Root request ID: `0x000000000000000000000000000000000000000000000000000000000059f5bd`
+  - Verdict callback tx: `0x3f5635d3a8f9205f19ed47d94ec49a711b70cdef7060fdd8c22b05865783e1e1`
+  - Final LLM notes: `somnia-agent-request:5895623`
+  - Verdict: `Complete`
+  - Final status: `Claimed`
+  - Claim tx: `0x6c89541066c429a6c54c6ff7b2ec6c1d3445b33518abfc6447498d7208984fd1`
+- Application `39`
+  - Submit tx: `0xdbf471e3233c3c14e0362516f0492bc6eb8f038748d95f97241e55973b9feae3`
+  - Request screening tx: `0x55ad65215b831e2556a8521cbc3d484b4643d0dad983e581ab4afbe11d57696a`
+  - Root request ID: `0x000000000000000000000000000000000000000000000000000000000059f5c0`
+  - Verdict callback tx: `0xb57c2678b82f8e4759c71f19a91f1099729ebdbd2acd47a5388ae039a8aec650`
+  - Final LLM notes: `somnia-agent-request:5895627`
+  - Verdict: `Complete`
+  - Final status: `Complete`, unselected because `maxWinners = 2`
+- Application `40`
+  - Submit tx: `0x8698d3dca32ba4f6a11a8651ede0231daf5700063c978e71ee20ebb35a03492c`
+  - Request screening tx: `0xf1e0f8f6750456083d2a659a3f39b16417c1523ccd16ae42cb140c2f8adb481b`
+  - Root request ID: `0x000000000000000000000000000000000000000000000000000000000059f5c4`
+  - Verdict callback tx: `0x2f038769dde6fc7a9b6143f3b7c167105b54f559d87340eca0d6779b0bc79df2`
+  - Final LLM notes: `somnia-agent-request:5895631`
+  - Verdict: `Complete`
+  - Final status: `Complete`, unselected because `maxWinners = 2`
+
+### Grant B - Somnia Cross-Chain Infrastructure Grant
+
+- Round ID: `20`
+- Prize: `3 STT`
+- Max winners: `3`
+- Total pool: `9 STT`
+- Screening mode: `ThreeAgent`
+- Create tx: `0x439bbd5fa564754ad7ea523a98f4651aa0a7a429e4c8282d2a81ca77c266a9e5`
+- Fund tx: `0x50101d8c9a43331c9af01365b770df2621183044b2e32f68d854248e868b5ef4`
+- Select finalists tx: `0xf5a1fec96b6f90cca41b5ba6e3776dd675abc7df6bbc4c70c800da8a35e681c2`
+- Finalize tx: `0x2c8cd5aa79029096df02c88396bac887dee30aa2b1664fe1feb97de1075a62e4`
+- Final round state: `Finalized`
+- Selected count: `3`
+- Claimed count: `3`
+- Total claimed: `9 STT`
+
+Applications:
+
+- Application `41`
+  - Submit tx: `0x88f4b70d1ac4a33e94e47ea967aa0913e54f8582a00c0bb2ebd025a1aa7b0753`
+  - Request screening tx: `0x2397eb49b6a6c7494e4decde876b99edfa428e0764a91dc8fa90fca0d4869c45`
+  - Root request ID: `0x000000000000000000000000000000000000000000000000000000000059f5c8`
+  - Verdict callback tx: `0xa550eb988c97cce11aec687ca41da7f5229340c2ac993baf292ad3909be597b4`
+  - Final LLM notes: `somnia-agent-request:5895636`
+  - Final status: `Claimed`
+  - Claim tx: `0xcb78744fae442e632470b636e88de3f3ea10095400274d4cc5f929420293e2e6`
+- Application `42`
+  - Submit tx: `0x61ed0c6f95715ee8414c35cf9e794b44aa7202ee2923df87d51cc7e93d7d3e0b`
+  - Request screening tx: `0x51efae8539591ce1fd058872c779d1068e463478e0fa3e3155c5beea9881b26b`
+  - Root request ID: `0x000000000000000000000000000000000000000000000000000000000059f5cd`
+  - Verdict callback tx: `0x90b77b610c0462ec6c451a160db75be45b32250f526174782828bff05d2f537a`
+  - Final LLM notes: `somnia-agent-request:5895640`
+  - Final status: `Claimed`
+  - Claim tx: `0xc11dbfb6472ddd36286eea382132e330936d5e3e7d3e358beb46dc3da309c530`
+- Application `43`
+  - Submit tx: `0x43b5714973abf7a9f9f7025742c7f6395e6e6c7720c4e3344ae96af5a3e662fb`
+  - Request screening tx: `0x498e8b9285c3bd78458fbea6772f745a9a06c662022b477f24a70eff7ccb4b11`
+  - Root request ID: `0x000000000000000000000000000000000000000000000000000000000059f5d1`
+  - Verdict callback tx: `0xf8de28c9880f0e8c4ae587914bb9316a6f798eed933b66bc569c91893db1ec85`
+  - Final LLM notes: `somnia-agent-request:5895642`
+  - Final status: `Claimed`
+  - Claim tx: `0xa547376a276fe4aa426554b976878c397ae005ce65d9e962f68928e1a9699c4f`
+- Application `44`
+  - Submit tx: `0x4ff9508dd5ddaa6bc424eabf479049db0b63d29a50a5e7297e8af64c58c4b3c2`
+  - Request screening tx: `0x9d7c9075e894b960aa8806a7f1c1f8f00141023136970db7206e715a8154668c`
+  - Root request ID: `0x000000000000000000000000000000000000000000000000000000000059f5d5`
+  - Verdict callback tx: `0x45ae92b159ebf9d2f5d45eabf70fdfbd2e81b85b705455961ad8224018050e70`
+  - Final LLM notes: `somnia-agent-request:5895644`
+  - Final status: `Complete`, unselected because `maxWinners = 3`
+
+### Milestone A - Implement Agent Request Monitoring
+
+- Task ID: `25`
+- Submission ID: `22`
+- Amount: `4 STT`
+- Claim policy: Immediate claim
+- Create tx: `0x0ec59317a4eadf92045531b494f329a6e3f248a8d3ea5101ad3a724a05c7e883`
+- Fund tx: `0xb950c5644f6c4a4253bff4108e9697cdb3c25c5abe1e83f303e71440c9aad214`
+- Submit tx: `0x2bbae14f172d89d7046d8c3f9560d9cda7c862c2b0e2e4c684cb5d0f84c4631c`
+- Root request ID: `0x000000000000000000000000000000000000000000000000000000000059f5d9`
+- Verdict callback tx: `0xef60834cf11a13284caef0b0ed7ea266da1a5c6e2a24a4817a3f5fe24c50e892`
+- Final LLM notes: `somnia-agent-request:5895643`
+- Claim tx: `0x787ff661c7df8afc160fc737e7fa7cdf689a33f4bac87bc55fed4cb13992b785`
+- Final verdict: `Complete`
+- Final state: `Claimed`
+
+### Milestone B - Ship Cross-Chain Evidence Indexer
+
+- Task ID: `26`
+- Submission ID: `23`
+- Amount: `7 STT`
+- Claim policy: Client approval required
+- Create tx: `0xdd460aa00c332362f4a3999699ee1fd1a4a25cd414e079c57c0d433b2c682533`
+- Fund tx: `0x21ada532d06b4ee1eb2f2ab9d6b1183fbcd864064df5ad108fdee07773595f39`
+- Submit tx: `0xeb716d9996da837634ecdd90f82e64158ed4cfba45e3a9d2c6a13d5901f5b573`
+- Root request ID: `0x000000000000000000000000000000000000000000000000000000000059f5dd`
+- Verdict callback tx: `0xc1304c8941d99ec6255f2aa44b3dfdf9a8b0bcf5d8020cf5cb55f1a0092ecf82`
+- Final LLM notes: `somnia-agent-request:5895646`
+- Approve tx: `0xd534b4b1da74aba079825c8ae31b73c7e979427187c481557f5bd414bbe604af`
+- Claim tx: `0x03e78b7a3675f4e8d47b4ac77ee0f3e4bca85f570d8c6d1210214dceb0194e8f`
+- Final verdict: `Complete`
+- Final state: `Claimed`
+
 ## Dashboard-Equivalent Aggregate Reads
 
 Computed from direct RPC reads using the same fields as `app/web/lib/hooks.ts::useDashboardStats`.
 
-- Milestone Contracts: `24`
-- Grant Rounds: `18`
-- Grant Applications: `36`
-- Milestone locked: `2 STT`
-- Milestone paid: `59.5 STT`
-- Grant pool total: `61.74 STT`
-- Grant paid: `32.74 STT`
-- STT Locked / pool total: `63.74 STT`
-- STT Distributed: `92.24 STT`
-- Evidence submitted: `55`
-- Verifications run: `52`
-- Complete verdicts: `38`
-- NeedsReview verdicts: `3`
+- Milestone Contracts: `26`
+- Grant Rounds: `20`
+- Grant Applications: `44`
+- Open milestones: `6`
+- Open rounds: `6`
+- Milestone locked: `4.8 STT`
+- Milestone paid: `70.5 STT`
+- Grant pool total: `65.74 STT`
+- Grant paid: `46.74 STT`
+- Protocol Volume / distributed total: `117.24 STT`
+- Currently locked / pool total: `70.54 STT`
+- Complete verdicts: `47`
+- NeedsReview verdicts: `4`
 - Incomplete verdicts: `3`
-- Total bounded verdicts: `44`
+- Total bounded verdicts: `54`
 - Verification failures: `7`
-- Complete Verdict Rate: `86.4%`
-- Milestone evidence submitted: `19`
-- Grant applications screened: `33`
+- Complete Verdict Rate: `87.0%`
+- Milestone evidence submitted: `20`
+- Grant applications screened: `41`
 
-This improved the prior approximate dashboard rate from about `76%` to `86.4%` through real successful on-chain Complete verdicts, not manual stat edits.
+This improved the prior approximate dashboard rate from about `76%` to `87.0%` through real successful on-chain Complete verdicts, not manual stat edits.
 
 ## Limitations And Caveats
 

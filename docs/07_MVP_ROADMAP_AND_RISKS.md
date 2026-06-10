@@ -1,5 +1,27 @@
 # MVP, Roadmap, and Risks
 
+## Final MVP Status
+
+The hackathon finalist implementation now proves the core loop on Somnia testnet:
+
+```text
+funded work
+-> public evidence submission
+-> Somnia Agent verification/screening
+-> bounded verdict callback
+-> escrow policy or grant-round screening status
+-> claim / review / resubmission / finalist selection
+```
+
+Shipped product surfaces:
+
+- **Milestone Escrow**: fixed-work settlement through JSON API facts plus LLM Inference bounded verdicts.
+- **GrantRound**: grant/hackathon rounds with TwoAgent fallback and ThreeAgent screening through JSON API facts, Website Parse, and LLM Inference.
+- **Dashboard**: live Vercel app reading deployed Somnia testnet contracts.
+- **Proof trail**: deployment artifacts, runbooks, transaction hashes, request IDs, and final demo data under `docs/proofs/`.
+
+The MVP is not production-audited and does not include marketplace discovery, KYC, fiat payout, hourly billing, or complex arbitration.
+
 ## Hackathon MVP
 
 The MVP should prove one clean loop:
@@ -101,6 +123,16 @@ funded task
 
 ## Future Roadmap
 
+### Near Term: Program Operations Wedge
+
+- grant and accelerator templates,
+- batch approvals and batch finalist selection,
+- stronger evidence manifests,
+- hosted evidence builder,
+- stablecoin / ERC20 escrow support,
+- sponsor program dashboards,
+- clearer retry/recovery UX.
+
 ### V1: Grant and Hackathon Product
 
 - program dashboards,
@@ -108,7 +140,11 @@ funded task
 - reward pools,
 - bulk submissions,
 - builder profiles,
-- verified project pages.
+- verified project pages,
+- reusable verification templates,
+- review/dispute workbench,
+- stronger proof and deployment indexing,
+- Data Streams reputation records.
 
 ### V2: Freelance Technical Escrow
 
@@ -128,7 +164,15 @@ funded task
 - agent reputation,
 - automated payout rules.
 
-### V4: Marketplace Layer
+### V4: Ecosystem Contributor Operations
+
+- Somnia-native grant operations tooling,
+- protocol ecosystem dashboards,
+- contributor credential records,
+- reusable sponsor workflows,
+- integration with additional Somnia agent/data primitives.
+
+### V5: Marketplace Layer
 
 - work discovery,
 - offers,

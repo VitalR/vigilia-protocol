@@ -1,5 +1,7 @@
 # Multi-Agent Settlement Runbook
 
+Historical note: this runbook covers v0.2.1. The final submission stack is documented in [`DEPLOYMENTS.md`](./DEPLOYMENTS.md). The canonical current escrow runbook is [`13_TWO_AGENT_SETTLEMENT_RUNBOOK.md`](./13_TWO_AGENT_SETTLEMENT_RUNBOOK.md), and the canonical GrantRound runbook is [`15_GRANT_ROUND_RUNBOOK.md`](./15_GRANT_ROUND_RUNBOOK.md).
+
 This runbook covers the v0.2.1 **full settlement** deployment for Vigilia Protocol on Somnia testnet.
 
 It is intentionally separate from:

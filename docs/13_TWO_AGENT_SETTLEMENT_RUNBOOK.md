@@ -1,5 +1,11 @@
 # Two-Agent Settlement Runbook
 
+Final submission references:
+
+- Canonical deployments: [`DEPLOYMENTS.md`](./DEPLOYMENTS.md)
+- Final live proof: [`proofs/2026-06-08-final-demo-data.md`](./proofs/2026-06-08-final-demo-data.md)
+- Live dashboard: https://vigilia-protocol.vercel.app/dashboard
+
 This runbook covers the Vigilia two-agent settlement path on Somnia testnet. The current hardened deployment is v0.2.3
 (`deployments/somnia-testnet-50312-two-agent-settlement-hardened.json`). The proven v0.2.2 deployment remains available as
 a historical artifact and must not be overwritten.

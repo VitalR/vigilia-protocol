@@ -20,6 +20,8 @@ Vigilia should not be a generic automation project deployed to Somnia. It should
 | Data Streams | Typed work records, evidence records, verification records, settlement records, reputation feed |
 | Protofire / DIA price feeds | Optional USD-denominated budgeting, fee display, reward normalization |
 
+Final MVP note: the live settlement flows rely on EVM contracts and Somnia Agents. The dashboard/proof layer currently uses on-chain reads, events, deployment artifacts, and proof docs. Reactivity, Cron, and Data Streams remain valuable Somnia-native expansion points but are not required for fund safety.
+
 ## Why This Is Difficult on Traditional Chains
 
 On a normal EVM chain, the same workflow requires a lot of centralized infrastructure:
