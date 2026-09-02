@@ -56,6 +56,9 @@ Fund work
   → bounded verdict is recorded
   → contract enforces claim / review / resubmission / refund
 ```
+>Project status: Somnia Agentathon / testnet MVP. Not audited or intended for production use.
+Agent verdicts evaluate submitted public evidence and should not be treated as independent proof
+or sufficient authorization for unattended production payouts.
 
 The current MVP proves two live product surfaces:
 
